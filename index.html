@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TNP Perfect Pitch — Pitch Town</title>
+
+<!-- Google Fonts: Press Start 2P (display) + VT323 (HUD/labels) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet" />
+
+<style>
+/* ============================================================
+   TNP PERFECT PITCH — PHASE 0: SKELETON
+   Scroll mechanism + design tokens only. No scene content yet.
+   Skeleton-only placeholders are marked in comments.
+   ============================================================ */
+
+:root{
+  /* --- Palette (from brand brief §2) --- */
+  --sky-deep:   #4B4FE6;  /* sky top          */
+  --sky-light:  #7E8FFF;  /* sky horizon      */
+  --tnp-purple: #878FFF;  /* skyline/mid-ground */
+  --teal:       #36E6E4;  /* UI accents        */
+  --coral:      #FF6B6B;  /* urgency/deadline  */
+  --coin-gold:  #FFC93C;  /* coins ONLY        */
+  --lime:       #39FF6A;  /* CTAs — on #080B12 only */
+  --cream:      #F5F2EC;  /* body text         */
+  --void:       #080B12;  /* outlines + dark surfaces */
+
+  /* --- Pixel grid unit --- */
+  --unit: 8px;
+
+  /* --- Type roles --- */
+  --font-display: 'Press Start 2P', monospace;   /* headlines only */
+  --font-hud:     'VT323', monospace;            /* HUD / labels / timers */
+  /* Body = TNP's existing sans-serif. Stand-in stack below —
+     SWAP IN the real TNP web font when supplied. */
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+               Helvetica, Arial, sans-serif;
+
+  /* --- Motion --- */
+  --scene-count: 6;
+  --snap-ms: 640ms;
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ height:100%; }
+
+body{
+  font-family:var(--font-body);
+  background:var(--void);
+  color:var(--cream);
+  overflow:hidden;              /* desktop: page itself never scrolls */
+  overscroll-behavior:none;
+}
+img{ image-rendering:pixelated; }
+
+/* ---------- HUD bar ----------
+   3-column grid (logo / chip / hearts). Equal 1fr edge columns keep
+   the center chip truly centered no matter how wide the logo or the
+   heart row end up being. */
+.hud{
+  position:fixed; inset:0 0 auto 0; z-index:40;
+  display:grid; grid-template-columns:1fr auto 1fr; align-items:center;
+  padding:calc(var(--unit)*1.5) calc(var(--unit)*2);
+  font-family:var(--font-hud); pointer-events:none;
+}
+.hud .chip{
+  justify-self:center;
+  background:var(--void); border:2px solid var(--lime); color:var(--lime);
+  padding:calc(var(--unit)*.5) calc(var(--unit)*1.5);
+  font-size:1.15rem; letter-spacing:.06em; line-height:1;
+}
+
+/* TNP logo, left column of the HUD grid — icon + wordmark, tagline
+   trimmed off since it's illegible at this compact a height. */
+.hud-logo{ justify-self:start; height:26px; width:auto; display:block; }
+
+/* ---------- Heart row (lives/progress indicator, replaces the old
+   text chip). A single pixel-heart shape, defined once as a <symbol>
+   and reused — each heart stays hidden until its scene is reached,
+   then appears filled coral. Small HUD iconography like this is UI
+   chrome, not illustration, so it's built directly rather than pulled
+   from an image asset. ---------- */
+.hud-hearts{ justify-self:end; display:flex; align-items:center; gap:calc(var(--unit)*.85); }
+
+/* Sound toggle — a plain bordered text box, band5051-style, fixed to
+   the bottom-left corner rather than tucked into the HUD. */
+.sound-toggle{
+  position:fixed; left:calc(var(--unit)*2); bottom:calc(var(--unit)*2); z-index:45;
+  font-family:var(--font-hud); letter-spacing:.1em; font-size:1.05rem;
+  color:var(--teal); background:var(--void); border:2px solid var(--teal);
+  padding:calc(var(--unit)*.75) calc(var(--unit)*1.75); cursor:pointer;
+}
+.sound-toggle.muted{ color:var(--coral); border-color:var(--coral); }
+.sound-toggle:focus-visible{ outline:3px solid var(--lime); outline-offset:3px; }
+.heart{ display:none; width:22px; height:19px; flex:none; color:var(--coral); }
+.heart.filled{ display:block; }
+.heart svg{ display:block; width:100%; height:100%; shape-rendering:crispEdges; }
+
+/* ---------- Scroll viewport + horizontal track (desktop) ---------- */
+.viewport{ position:fixed; inset:0; overflow:hidden; }
+.track{
+  display:flex; flex-direction:row; height:100%;
+  width:calc(var(--scene-count) * 100vw);
+  transform:translateX(calc(var(--i, 0) * -100vw));
+  transition:transform var(--snap-ms) cubic-bezier(.7,0,.2,1);
+  will-change:transform;
+}
+
+/* ---------- A scene panel ---------- */
+.scene{
+  flex:0 0 100vw; width:100vw; height:100vh; position:relative;
+  display:flex; align-items:center; justify-content:center;
+  padding:calc(var(--unit)*4);
+  /* Placeholder sky gradient until each scene gets its bg-*.png */
+  background:linear-gradient(180deg, var(--sky-deep) 0%, var(--sky-light) 100%);
+}
+
+/* ============================================================
+   AMBIENT LAYER — persistent PIP companion + floating coins.
+   Both run on fixed CSS timers only, never on scroll position or
+   speed (the brief explicitly flags scroll-bound sprite animation
+   as fragile across devices/input methods). Sits at z-index:1 —
+   above scene art (0), below every .panel (2), so text never gets
+   walked over. Native frame size is 350x784 per frame in both
+   sheets; display size below is that ratio scaled down. */
+.pip{
+  position:fixed; z-index:1; bottom:14px; left:-70px;
+  width:48px; height:107px;
+  background-image:url('assets/pip-walk-sheet.png');
+  background-repeat:no-repeat; background-size:192px 107px;
+  image-rendering:pixelated; pointer-events:none;
+  animation: pip-cycle .64s steps(4) infinite, pip-stroll 12s linear infinite;
+}
+@keyframes pip-cycle{ from{ background-position-x:0; } to{ background-position-x:-192px; } }
+@keyframes pip-stroll{ 0%{ left:-70px; } 100%{ left:calc(100% + 70px); } }
+
+.coin{
+  position:fixed; z-index:1; pointer-events:none; opacity:.85;
+  width:26px; height:58px;
+  background-image:url('assets/coin-spin-sheet.png');
+  background-repeat:no-repeat; background-size:104px 58px;
+  image-rendering:pixelated;
+  animation: coin-spin .8s steps(4) infinite, coin-float 4s ease-in-out infinite;
+}
+@keyframes coin-spin{ from{ background-position-x:0; } to{ background-position-x:-104px; } }
+@keyframes coin-float{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-14px); } }
+.coin--a{ top:12%; left:5%; animation-delay:0s; }
+.coin--b{ top:15%; right:6%; animation-delay:1.1s; }
+.coin--c{ bottom:16%; right:9%; animation-delay:2.1s; }
+
+@media (prefers-reduced-motion:reduce){
+  .pip,.coin{ animation:none; display:none; }
+}
+
+/* ---------- Real scene background layer (shared by all built scenes) ---------- */
+.scene-bg{
+  position:absolute; inset:0; width:100%; height:100%;
+  object-fit:cover; z-index:0;
+}
+
+/* ---------- Panel: dialogue-box content container for built scenes ----------
+   Sharp corners (no border-radius) throughout the site, matching the
+   deck's own reference art — a curved edge would anti-alias against
+   the pixel-art backgrounds, so "rounded rectangle" is read as the
+   hard-edged pixel version, not a CSS radius. */
+.panel{
+  position:relative; z-index:2;
+  background:rgba(8,11,18,.82); border:2px solid var(--lime);
+  padding:calc(var(--unit)*3.5) calc(var(--unit)*4);
+  max-width:min(90vw, 560px);
+}
+.panel h2{
+  font-family:var(--font-display); color:var(--lime);
+  font-size:clamp(1rem, 2.6vw, 1.5rem); line-height:1.6;
+  margin-bottom:calc(var(--unit)*2.5);
+}
+.panel .body-copy{
+  font-family:var(--font-hud); color:var(--cream);
+  font-size:1.2rem; line-height:1.55; opacity:.92;
+}
+.panel .badge-row{
+  display:flex; flex-wrap:wrap; gap:calc(var(--unit)*1.5);
+  margin-top:calc(var(--unit)*3);
+}
+.panel .badge{
+  display:inline-block;
+  font-family:var(--font-hud); color:var(--teal);
+  border:2px solid var(--teal); background:var(--void);
+  padding:calc(var(--unit)*.75) calc(var(--unit)*1.75);
+  font-size:1.2rem; letter-spacing:.14em;
+}
+.panel .badge--gold{ color:var(--coin-gold); border-color:var(--coin-gold); }
+.panel .badge--silver{ color:var(--cream); border-color:var(--cream); }
+.panel .badge--bronze{ color:var(--coral); border-color:var(--coral); }
+
+/* Scene 1 composition: panel sits left, leaving the coin jar on the
+   right of bg-what-is-this.png in view. Collapses to centered before
+   the mobile breakpoint, since vertical stacking wants a centered card. */
+.scene--what-is-this{ justify-content:flex-start; padding-left:calc(var(--unit)*9); }
+@media (max-width:1000px){
+  .scene--what-is-this{ justify-content:center; padding-left:calc(var(--unit)*4); }
+}
+
+/* Scene 2 composition: panel anchored high, leaving the four ascending
+   brick platforms + flag visible along the ground in bg-how-to-play.png. */
+.scene--how-to-play{ align-items:flex-start; padding-top:calc(var(--unit)*7); }
+@media (max-width:1000px){
+  .scene--how-to-play{ padding-top:calc(var(--unit)*4); }
+}
+
+/* Scene 3 composition: panel anchored high, leaving PIP/P2/P3 and the
+   coin stacks visible below in bg-gather-squad.png. */
+.scene--gather-squad{ align-items:flex-start; padding-top:calc(var(--unit)*7); }
+@media (max-width:1000px){
+  .scene--gather-squad{ padding-top:calc(var(--unit)*4); }
+}
+
+/* Scene 4 composition: the summary panel (headline, intro, callouts)
+   anchors at the top; the four Boss Fight topics live in their own
+   small boxes along the bottom instead of one panel covering the
+   whole scene — that was hiding all four seated boss figures. */
+.scene--final-bosses{ align-items:flex-start; justify-content:center; padding-top:calc(var(--unit)*5); }
+@media (max-width:1000px){
+  .scene--final-bosses{ padding-top:calc(var(--unit)*4); }
+}
+
+.boss-topics{
+  position:absolute; left:0; right:0; bottom:calc(var(--unit)*4); z-index:2;
+  display:flex; justify-content:center; flex-wrap:wrap;
+  gap:calc(var(--unit)*1.5); padding:0 calc(var(--unit)*3);
+}
+.boss-topic{
+  background:rgba(8,11,18,.82); border:2px solid var(--lime);
+  padding:calc(var(--unit)*1.5); flex:1 1 170px; max-width:200px;
+}
+.boss-topic h3{
+  font-family:var(--font-display); color:var(--lime);
+  font-size:.58rem; letter-spacing:.03em; line-height:1.5;
+  margin-bottom:calc(var(--unit)*.75);
+}
+.boss-topic p{
+  font-family:var(--font-hud); color:var(--cream); opacity:.9;
+  font-size:1rem; line-height:1.35; margin:0;
+}
+@media (max-width:1000px){
+  .boss-topics{ position:static; margin-top:calc(var(--unit)*3); }
+}
+
+.panel .callout{
+  font-family:var(--font-hud); font-size:1.05rem; letter-spacing:.03em;
+  line-height:1.4; margin-top:calc(var(--unit)*2);
+}
+.panel .callout--coral{ color:var(--coral); }
+.panel .callout--teal{ color:var(--teal); margin-top:calc(var(--unit)*1); }
+
+/* Scene 5 composition: panel offset right, leaving the glowing coin
+   jar — the Vault itself — unobstructed on the left of bg-how-you-win.png. */
+.scene--how-you-win{ justify-content:flex-end; padding-right:calc(var(--unit)*9); }
+@media (max-width:1000px){
+  .scene--how-you-win{ justify-content:center; padding-right:calc(var(--unit)*4); }
+}
+
+/* Scene 6 composition: panel anchored low, echoing the loading screen's
+   arcade-cabinet street art and bookending the journey. */
+.scene--register{ align-items:flex-end; padding-bottom:calc(var(--unit)*7); }
+@media (max-width:1000px){
+  .scene--register{ padding-bottom:calc(var(--unit)*4); }
+}
+.panel .caption{
+  font-family:var(--font-hud); color:var(--cream); opacity:.6;
+  font-size:.95rem; letter-spacing:.04em; margin-top:calc(var(--unit)*1.25);
+}
+
+/* Numbered step list — numbering is earned here: these are four real,
+   ordered steps in the actual process, not decorative sequencing. */
+.step-list{
+  list-style:none; margin-top:calc(var(--unit)*2.5);
+  display:flex; flex-direction:column; gap:calc(var(--unit)*2.25);
+}
+.step-list li{ display:flex; gap:calc(var(--unit)*2); align-items:flex-start; }
+.step-num{
+  flex:none; width:2.4ch;
+  font-family:var(--font-hud); color:var(--teal);
+  font-size:1.4rem; letter-spacing:.04em; line-height:1.5;
+}
+.step-list h3{
+  font-family:var(--font-display); color:var(--lime);
+  font-size:.62rem; letter-spacing:.03em; line-height:1.6;
+  margin-bottom:calc(var(--unit)*.75);
+}
+.step-list p{
+  font-family:var(--font-hud); color:var(--cream); opacity:.9;
+  font-size:1.05rem; line-height:1.4;
+}
+
+/* ---------- Loading overlay — Scene 0 (real build) ----------
+   Full-bleed bg-loading.png with a void dialogue-box panel anchored
+   low. Panel is dark so the lime bar/button/border stay legal
+   (lime never touches the sky art behind it — brief hard rule 6). */
+.loader{
+  position:fixed; inset:0; z-index:100; overflow:hidden;
+  background:var(--void);
+  display:flex; align-items:flex-end; justify-content:center;
+  transition:opacity .5s ease;
+}
+.loader.hidden{ opacity:0; pointer-events:none; }
+
+.loader-bg{
+  position:absolute; inset:0; width:100%; height:100%;
+  object-fit:cover; z-index:0;
+}
+.loader-scrim{
+  position:absolute; inset:0; z-index:1;
+  background:linear-gradient(180deg, rgba(8,11,18,0) 45%, rgba(8,11,18,.6) 100%);
+}
+
+.loader-panel{
+  position:relative; z-index:2;
+  width:min(92vw, 560px);
+  margin-bottom:calc(var(--unit)*5);
+  background:var(--void); border:2px solid var(--lime);
+  padding:calc(var(--unit)*3) calc(var(--unit)*3.5);
+  text-align:center;
+}
+.loader-label{
+  font-family:var(--font-hud); color:var(--teal);
+  font-size:1.3rem; letter-spacing:.12em;
+}
+
+.progress{
+  margin:calc(var(--unit)*2.25) 0 calc(var(--unit)*1.5);
+  display:flex; gap:3px; justify-content:center; flex-wrap:wrap;
+}
+.progress .seg{
+  width:14px; height:calc(var(--unit)*2);
+  background:rgba(245,242,236,.14); border:1px solid var(--void);
+  transition:background .1s linear;
+}
+.progress .seg.lit{ background:var(--lime); }
+
+.loader-cta{
+  margin-top:calc(var(--unit)*1.5);
+  opacity:0; transform:translateY(6px); pointer-events:none;
+  transition:opacity .35s ease, transform .35s ease;
+}
+.loader-cta.show{ opacity:1; transform:none; pointer-events:auto; }
+
+/* Shared master-line CTA button — same treatment wherever
+   "PRESS START TO PITCH" appears (loading screen, Register scene). */
+.cta-button{
+  display:inline-block;
+  font-family:var(--font-display); color:var(--void); background:var(--lime);
+  border:none; cursor:pointer; text-decoration:none;
+  font-size:clamp(.55rem, 1.7vw, .75rem); letter-spacing:.06em; line-height:1.7;
+  padding:calc(var(--unit)*1.75) calc(var(--unit)*2.5);
+}
+
+.loader-cta .sub{
+  margin-top:calc(var(--unit)*1.5);
+  font-family:var(--font-hud); color:var(--cream); opacity:.75;
+  font-size:1.05rem; letter-spacing:.06em; text-transform:none;
+}
+
+/* ============================================================
+   MOBILE (<=768px): vertical stacked layout, native scroll.
+   Same content + art, top to bottom instead of left to right.
+   ============================================================ */
+@media (max-width:768px){
+  body{ overflow:auto; }
+  .hud{ position:sticky; }
+  .viewport{ position:static; overflow:visible; height:auto; }
+  .track{
+    flex-direction:column; width:100%; height:auto;
+    transform:none !important; transition:none;
+  }
+  .scene{ flex:none; width:100%; height:auto; min-height:100vh; }
+}
+
+/* ---------- Accessibility ---------- */
+@media (prefers-reduced-motion:reduce){
+  .track,.loader{ transition-duration:1ms; }
+}
+.cta-button:focus-visible{ outline:3px solid var(--teal); outline-offset:3px; }
+</style>
+</head>
+
+<body>
+
+  <!-- Heart glyph, defined once, reused by every heart in the HUD -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="heart-icon" viewBox="0 0 7 6">
+      <rect x="1" y="0" width="1" height="1" fill="currentColor"/><rect x="2" y="0" width="1" height="1" fill="currentColor"/>
+      <rect x="4" y="0" width="1" height="1" fill="currentColor"/><rect x="5" y="0" width="1" height="1" fill="currentColor"/>
+      <rect x="0" y="1" width="7" height="2" fill="currentColor"/>
+      <rect x="1" y="3" width="5" height="1" fill="currentColor"/>
+      <rect x="2" y="4" width="3" height="1" fill="currentColor"/>
+      <rect x="3" y="5" width="1" height="1" fill="currentColor"/>
+    </symbol>
+  </svg>
+
+  <!-- Background music: starts on the first Press Start click (browsers
+       block audio autoplay before any user gesture, so this is the
+       earliest point playback can legally begin). Toggled via the
+       bottom-left Sound On/Off box. -->
+  <audio id="bgm" src="assets/bgm.mp3" loop preload="auto"></audio>
+  <button type="button" id="muteBtn" class="sound-toggle" aria-pressed="false">SOUND ON</button>
+
+  <!-- Ambient companions — pure CSS timers, never tied to scroll -->
+  <div class="pip" aria-hidden="true"></div>
+  <div class="coin coin--a" aria-hidden="true"></div>
+  <div class="coin coin--b" aria-hidden="true"></div>
+  <div class="coin coin--c" aria-hidden="true"></div>
+
+  <!-- HUD -->
+  <header class="hud">
+    <img class="hud-logo" src="assets/tnp-logo.png" alt="TNP" />
+    <span class="chip">TNP Perfect Pitch 2026</span>
+    <div class="hud-hearts" aria-hidden="true">
+      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+    </div>
+  </header>
+
+  <!-- Scroll journey -->
+  <div class="viewport">
+    <div class="track">
+
+      <section class="scene scene--what-is-this" aria-label="Scene 1: What is this?">
+        <img class="scene-bg" src="assets/bg-what-is-this.png" alt="" />
+        <div class="panel">
+          <h2>WHAT IS THIS?</h2>
+          <p class="body-copy">TNP Perfect Pitch is a Shark Tank&ndash;style pitch competition, open to every TNP India employee. Bring an idea &mdash; a product, a service, a process fix, anything &mdash; and pitch it live to a panel of external judges: five minutes to make your case, followed by a round of investor-style questions. No department gatekeeps a good idea here. If you have one, this is where you bring it.</p>
+          <div class="badge-row"><div class="badge">16 SEPTEMBER 2026</div></div>
+        </div>
+      </section>
+
+      <section class="scene scene--how-to-play" aria-label="Scene 2: How to Play">
+        <img class="scene-bg" src="assets/bg-how-to-play.png" alt="" />
+        <div class="panel">
+          <h2>HOW TO PLAY</h2>
+          <ol class="step-list">
+            <li>
+              <span class="step-num">01</span>
+              <div>
+                <h3>BUILD YOUR SQUAD</h3>
+                <p>Register solo, or bring up to two teammates along.</p>
+              </div>
+            </li>
+            <li>
+              <span class="step-num">02</span>
+              <div>
+                <h3>LOAD YOUR IDEA</h3>
+                <p>Submit your run and lock in the deck before the doors close.</p>
+              </div>
+            </li>
+            <li>
+              <span class="step-num">03</span>
+              <div>
+                <h3>LEVEL 01: THE PITCH</h3>
+                <p>Five minutes on stage, timed, with a visible countdown.</p>
+              </div>
+            </li>
+            <li>
+              <span class="step-num">04</span>
+              <div>
+                <h3>THE BOSS FIGHT</h3>
+                <p>Straight into questions from the judges. This is where runs are won.</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="scene scene--gather-squad" aria-label="Scene 3: Gather Your Squad">
+        <img class="scene-bg" src="assets/bg-gather-squad.png" alt="" />
+        <div class="panel">
+          <h2>GATHER YOUR SQUAD</h2>
+          <p class="body-copy">Teams of 1 to 3 are welcome &mdash; solo runs count too. Cross-department squads are actively encouraged; the best ideas at TNP rarely sit inside one department. Every TNP India employee is eligible, and if you're based outside Kochi, you can join and present virtually with prior MarCom approval.</p>
+          <div class="badge-row">
+            <div class="badge">1&ndash;3 PLAYERS PER TEAM</div>
+            <div class="badge">10 TEAM SLOTS</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="scene scene--final-bosses" aria-label="Scene 4: The Final Bosses">
+        <img class="scene-bg" src="assets/bg-final-bosses.png" alt="" />
+        <div class="panel">
+          <h2>THE FINAL BOSSES</h2>
+          <p class="body-copy">Five to seven minutes of investor-style questioning, straight after your pitch. This is where runs are won.</p>
+          <p class="callout callout--coral">Composure is scored as heavily as content. How you handle the round counts.</p>
+          <p class="callout callout--teal">FOUR EXTERNAL JUDGES. NONE OF THEM WORK HERE.</p>
+        </div>
+        <div class="boss-topics">
+          <div class="boss-topic"><h3>MARKET</h3><p>Who buys this, and why now rather than later?</p></div>
+          <div class="boss-topic"><h3>NUMBERS</h3><p>What does it cost to build, and what does it return?</p></div>
+          <div class="boss-topic"><h3>DIFFERENTIATION</h3><p>Why this, and why not the obvious alternative?</p></div>
+          <div class="boss-topic"><h3>EXECUTION</h3><p>Who builds it, on what timeline, and what breaks first?</p></div>
+        </div>
+      </section>
+
+      <section class="scene scene--how-you-win" aria-label="Scene 5: How You Win">
+        <img class="scene-bg" src="assets/bg-how-you-win.png" alt="" />
+        <div class="panel">
+          <h2>HOW YOU WIN</h2>
+          <p class="body-copy">Every judge scores your pitch out of 50, across five categories &mdash; four judges, 200 points in total. That's 70% of your Final Score. The other 30% comes from The Vault: the coins each Final Boss drops into your jar once your Boss Fight ends. A full jar means the room is convinced; a thin one means the numbers still need work.</p>
+          <div class="badge-row">
+            <div class="badge badge--gold">1ST &mdash; &#8377;30,000</div>
+            <div class="badge badge--silver">2ND &mdash; &#8377;15,000</div>
+            <div class="badge badge--bronze">3RD &mdash; &#8377;5,000</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="scene scene--register" aria-label="Scene 6: Register">
+        <img class="scene-bg" src="assets/bg-register.png" alt="" />
+        <div class="panel">
+          <h2>REGISTER</h2>
+          <!--
+            PLACEHOLDER — replace PASTE_MICROSOFT_FORM_URL_HERE with the
+            real Microsoft Form link once it's built. This link only ever
+            opens that form in a new tab; nothing here embeds the form.
+          -->
+          <a class="cta-button" href="PASTE_MICROSOFT_FORM_URL_HERE" target="_blank" rel="noopener">PRESS START TO PITCH</a>
+          <p class="caption">Opens the registration form in a new tab.</p>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- Loading overlay — Scene 0 -->
+  <div class="loader" role="dialog" aria-label="Loading TNP Perfect Pitch" aria-live="polite">
+    <img class="loader-bg" src="assets/bg-loading.png" alt="" />
+    <div class="loader-scrim"></div>
+    <div class="loader-panel">
+      <div class="loader-label">LOADING TNP PERFECT PITCH&hellip;</div>
+      <div class="progress" id="progressBar"></div>
+      <div class="loader-cta" id="loaderCta">
+        <button type="button" id="startBtn" class="cta-button">PRESS START TO PITCH</button>
+        <div class="sub">Five minutes. No continues.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  var track   = document.querySelector('.track');
+  var scenes  = Array.prototype.slice.call(document.querySelectorAll('.scene'));
+  var hearts  = Array.prototype.slice.call(document.querySelectorAll('.heart'));
+  var loader  = document.querySelector('.loader');
+  var loaderCta = document.getElementById('loaderCta');
+  var startBtn  = document.getElementById('startBtn');
+  var progressBar = document.getElementById('progressBar');
+  var bgm = document.getElementById('bgm');
+  var muteBtn = document.getElementById('muteBtn');
+
+  var TOTAL = scenes.length;
+  var mq = window.matchMedia('(min-width:769px)');
+  var i = 0, locked = false, ready = false;
+
+  function isDesktop(){ return mq.matches; }
+
+  function render(){
+    track.style.setProperty('--i', i);
+    for(var n=0;n<hearts.length;n++){ hearts[n].classList.toggle('filled', n<=i); }
+  }
+
+  function goTo(n){
+    n = Math.max(0, Math.min(TOTAL-1, n));
+    if(n === i) return;
+    i = n; render();
+  }
+
+  function step(dir){
+    if(locked) return;
+    var next = i + dir;
+    if(next < 0 || next >= TOTAL) return;
+    locked = true;
+    goTo(next);
+    setTimeout(function(){ locked = false; }, 680);
+  }
+
+  /* Wheel hijack — desktop only, after the loader is dismissed.
+     One gesture = one scene (the lock swallows trackpad momentum). */
+  window.addEventListener('wheel', function(e){
+    if(!ready || !isDesktop()) return;
+    e.preventDefault();
+    var dy = e.deltaY, dx = e.deltaX;
+    var delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+    if(Math.abs(delta) < 8) return;
+    step(delta > 0 ? 1 : -1);
+  }, { passive:false });
+
+  /* Keyboard */
+  window.addEventListener('keydown', function(e){
+    if(!ready || !isDesktop()) return;
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key==='PageDown'){ e.preventDefault(); step(1); }
+    else if(e.key==='ArrowLeft'||e.key==='ArrowUp'||e.key==='PageUp'){ e.preventDefault(); step(-1); }
+    else if(e.key==='Home'){ e.preventDefault(); goTo(0); }
+    else if(e.key==='End'){ e.preventDefault(); goTo(TOTAL-1); }
+  });
+
+  /* Basic swipe for desktop-width touch screens */
+  var tsx=0, tsy=0;
+  window.addEventListener('touchstart', function(e){
+    if(!isDesktop()) return;
+    tsx = e.touches[0].clientX; tsy = e.touches[0].clientY;
+  }, { passive:true });
+  window.addEventListener('touchend', function(e){
+    if(!ready || !isDesktop()) return;
+    var dx = e.changedTouches[0].clientX - tsx;
+    var dy = e.changedTouches[0].clientY - tsy;
+    if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40){ step(dx < 0 ? 1 : -1); }
+  }, { passive:true });
+
+  /* Reset transform cleanly when crossing the 768px boundary */
+  function onMQ(){ if(isDesktop()) render(); else track.style.removeProperty('--i'); }
+  if(mq.addEventListener) mq.addEventListener('change', onMQ);
+  else if(mq.addListener) mq.addListener(onMQ);
+
+  /* Segmented pixel progress bar — lights one block at a time,
+     chunky rather than a smooth CSS width transition, then reveals
+     the master-line CTA. User presses start; nothing auto-dismisses. */
+  var SEG_COUNT = 16, SEG_MS = 130;
+  var segs = [];
+  for (var s = 0; s < SEG_COUNT; s++) {
+    var el = document.createElement('span');
+    el.className = 'seg';
+    progressBar.appendChild(el);
+    segs.push(el);
+  }
+  var lit = 0;
+  var fillTimer = setInterval(function(){
+    if (lit >= SEG_COUNT) { clearInterval(fillTimer); loaderCta.classList.add('show'); return; }
+    segs[lit].classList.add('lit');
+    lit++;
+  }, SEG_MS);
+
+  function start(){
+    if (ready || !loaderCta.classList.contains('show')) return;
+    loader.classList.add('hidden'); ready = true; render();
+    bgm.volume = 0.55;
+    bgm.play().catch(function(){ /* if it's still blocked, the mute icon just reflects paused state */ });
+  }
+  startBtn.addEventListener('click', start);
+  window.addEventListener('keydown', function(e){
+    if (!ready && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); start(); }
+  });
+
+  function updateMuteUI(){
+    muteBtn.classList.toggle('muted', bgm.muted);
+    muteBtn.setAttribute('aria-pressed', String(bgm.muted));
+    muteBtn.textContent = bgm.muted ? 'SOUND OFF' : 'SOUND ON';
+  }
+  muteBtn.addEventListener('click', function(){
+    bgm.muted = !bgm.muted;
+    updateMuteUI();
+  });
+  updateMuteUI();
+
+  render();
+})();
+</script>
+</body>
+</html>
