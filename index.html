@@ -145,14 +145,18 @@ img{ image-rendering:pixelated; }
    so text never gets walked over. Native frame size is 350x784 per
    frame in the sheet.
 
-   PIP only makes forward progress while the user is actively
-   scrolling/stepping (JS toggles the .walking class — see the script
-   at the bottom); animation-play-state:paused freezes him exactly
-   where he stood rather than resetting him, so he picks back up
-   mid-stride next time the scene moves. The step-cycle timer itself
-   still runs on its own fixed interval whenever .walking is active —
-   never derived from scroll distance/speed — so the frame the legs
-   land on is not bound to scroll position, per the brand brief.
+   PIP's horizontal position tracks overall scroll progress through the
+   whole journey — left edge at Scene 1, arriving at the bench in the
+   Register scene once you've scrolled all the way through — set as an
+   inline `left` by JS (see updatePipPosition() in the script at the
+   bottom) and clamped to a safe on-screen range, so he's always visible
+   and never exits the frame. The leg-cycle timer still only plays while
+   .walking is active (toggled on scroll/step input) and runs on its own
+   fixed interval regardless of scroll speed — never derived from scroll
+   distance — so the frame the legs land on isn't bound to scroll
+   position, per the brand brief; only his overall progress along the
+   journey is (an explicit, deliberate deviation from the brief's hard
+   rule 4, requested directly).
 
    The crop-then-scale split below (a native-scale clip via the
    element's own box, then a separate transform:scale) exists because
@@ -164,22 +168,34 @@ img{ image-rendering:pixelated; }
    that minification step entirely; the outer transform then scales
    an already-crisp, already-cropped bitmap down to display size. */
 .pip{
-  position:fixed; z-index:1; bottom:14px; left:-70px;
+  --pip-scale:0.49382716; /* 160/324 — much bigger: ~3.3x the original 48px-wide size */
+  position:fixed; z-index:1; bottom:14px; left:4vw;
   width:324px; height:764px; /* native-scale crop window: trims the frame's white bottom-right edge */
   transform-origin:left bottom;
-  transform:scale(0.14814815); /* 48/324 — final on-screen size is 48x113 */
+  transform:translateY(0) scale(var(--pip-scale));
   background-image:url('assets/pip-walk-sheet.png');
   background-repeat:no-repeat; background-position:0 0;
-  image-rendering:pixelated; pointer-events:none;
-  animation: pip-cycle .64s steps(4) infinite, pip-stroll 12s linear infinite;
+  image-rendering:pixelated;
+  border:none; padding:0; margin:0; background-color:transparent; -webkit-appearance:none; appearance:none;
+  cursor:pointer; pointer-events:auto;
+  transition:left .3s ease-out, bottom .3s ease-out, opacity .3s ease-out;
+  animation: pip-cycle .64s steps(4) infinite;
   animation-play-state:paused;
 }
 .pip.walking{ animation-play-state:running; }
+.pip.jumping{ animation: pip-cycle .64s steps(4) infinite, pip-jump .55s cubic-bezier(.34,1.56,.64,1); }
+.pip:focus-visible{ outline:3px solid var(--lime); outline-offset:6px; }
 @keyframes pip-cycle{ from{ background-position-x:0; } to{ background-position-x:-1400px; } }
-@keyframes pip-stroll{ 0%{ left:-70px; } 100%{ left:calc(100% + 70px); } }
+/* translateY is the OUTER transform function here, so its px value stays
+   a fixed screen-space hop regardless of --pip-scale — one set of
+   keyframes works for both the desktop and mobile sizes. */
+@keyframes pip-jump{
+  0%, 100%{ transform:translateY(0) scale(var(--pip-scale)); }
+  45%{ transform:translateY(-42px) scale(var(--pip-scale)); }
+}
 
 @media (prefers-reduced-motion:reduce){
-  .pip{ animation:none; display:none; }
+  .pip, .pip.jumping{ animation:none; display:none; }
 }
 
 /* ---------- Bonus coin side-game ----------
@@ -429,7 +445,14 @@ img{ image-rendering:pixelated; }
    Same content + art, top to bottom instead of left to right.
    ============================================================ */
 @media (max-width:768px){
-  body{ overflow-x:hidden; overflow-y:auto; }
+  /* html,body{height:100%} (base rule, desktop's fixed-viewport trick)
+     plus body{overflow-y:auto} here turned <body> into its OWN internal
+     scroll container instead of letting the window/document scroll —
+     which is what made the "sticky" HUD below scroll away with the
+     content instead of staying pinned, and would have silently broken
+     window.scrollY-based tracking too. height:auto lets body grow to
+     its real content height so the window scrolls it normally. */
+  body{ height:auto; overflow-x:hidden; }
   .viewport{ position:static; overflow:visible; height:auto; }
   .track{
     flex-direction:column; width:100%; height:auto;
@@ -438,9 +461,11 @@ img{ image-rendering:pixelated; }
   .scene{ flex:none; width:100%; height:auto; min-height:100vh; padding:calc(var(--unit)*3) calc(var(--unit)*2.5); }
 
   /* HUD: logo + coins/hearts on one row, the event chip on its own row
-     below — three items no longer fight for space on one narrow line. */
+     below — three items no longer fight for space on one narrow line.
+     position:fixed (not sticky) so it stays pinned to the viewport
+     regardless of which element ends up owning the scroll. */
   .hud{
-    position:sticky;
+    position:fixed;
     grid-template-columns:1fr auto; grid-template-rows:auto auto;
     grid-template-areas:"logo right" "chip chip";
     row-gap:calc(var(--unit)*1); column-gap:calc(var(--unit)*1.5);
@@ -476,6 +501,13 @@ img{ image-rendering:pixelated; }
   .boss-topic{ flex:1 1 100%; max-width:100%; }
 
   .bonus-coin{ width:28px; height:63px; }
+
+  /* PIP's desktop size (160px wide, ~377px tall) genuinely doesn't fit
+     in the gap above or below several tall, full-width mobile panels —
+     no positioning logic can beat that arithmetic. Sized back down here
+     so the collision-avoidance in the script below actually has room to
+     work with on short viewports. */
+  .pip{ --pip-scale:0.18518519; } /* 60/324 */
 }
 
 /* ---------- Accessibility ---------- */
@@ -507,8 +539,9 @@ img{ image-rendering:pixelated; }
   <audio id="bgm" src="assets/bgm.mp3" loop preload="auto"></audio>
   <button type="button" id="muteBtn" class="sound-toggle" aria-pressed="false">SOUND ON</button>
 
-  <!-- Ambient companion — walks only while the user is scrolling/stepping -->
-  <div class="pip" aria-hidden="true"></div>
+  <!-- Ambient companion — walks only while the user is scrolling/stepping,
+       hops if you click/tap him -->
+  <button type="button" class="pip" aria-label="PIP"></button>
 
   <!-- Bonus coin side-game — three coins, each independently spawning at a
        random spot, spinning, and despawning after 3s if unclicked. A click
@@ -687,6 +720,7 @@ img{ image-rendering:pixelated; }
     if(n === i) return;
     i = n; render();
     pipWalk();
+    updatePipPosition(i / (TOTAL - 1));
   }
 
   function step(dir){
@@ -757,6 +791,7 @@ img{ image-rendering:pixelated; }
   function start(){
     if (ready || !loaderCta.classList.contains('show')) return;
     loader.classList.add('hidden'); ready = true; render();
+    updatePipPosition(i / (TOTAL - 1));
     bgm.volume = 0.55;
     bgm.play().catch(function(){ /* if it's still blocked, the mute icon just reflects paused state */ });
     bonusCoins.forEach(function(el, idx){
@@ -837,20 +872,147 @@ img{ image-rendering:pixelated; }
 
   /* ---------- PIP walks only while the scene is actually moving ----------
      .walking just toggles animation-play-state (see .pip.walking in the
-     CSS) — a short idle timeout re-pauses him a beat after the last
-     scroll/step input. goTo() already calls this on every desktop
+     CSS) — a short idle timeout re-pauses the leg-cycle a beat after the
+     last scroll/step input. goTo() already calls this on every desktop
      step/keyboard/swipe move; the scroll listener below covers the
      mobile vertical-stack layout, where scenes move via native scroll
-     instead of goTo(). */
+     instead of goTo().
+
+     updatePipPosition() maps overall journey progress (0 at Scene 1, 1
+     at Register) onto a left/right range inset from both viewport
+     edges, so by default he's always on screen and walks forward on
+     scroll down, backward on scroll up, ending up at the bench in
+     bg-register.png once the journey is complete. Before applying that
+     position it checks the CURRENT scene's .panel and .boss-topics
+     boxes for a real overlap (getBoundingClientRect, not a guessed
+     per-scene zone, since panel placement/height varies with content
+     and viewport) and, if his ground-level footprint would intersect
+     either one, slides him to just outside whichever box edge is
+     closest instead — walking around it rather than through it. If no
+     clear ground exists on either side (a box spanning the full width
+     at his height), he fades out rather than overlap, and fades back
+     in once there's room. */
   var pipEl = document.querySelector('.pip');
   var pipIdleTimer = null;
+  var PIP_MIN_VW = 0.05, PIP_MAX_VW = 0.80;
+  var PIP_BOTTOM_PX = 14, PIP_GAP_PX = 6;
+  /* PIP's on-screen size differs by breakpoint (desktop 160px wide vs
+     mobile 70px, see the .pip transform overrides in the CSS) — read it
+     back from the live element so the collision math below always
+     matches what's actually rendered. */
+  function pipWidthPx(){ return pipEl.getBoundingClientRect().width; }
+  function pipHeightPx(){ return pipEl.getBoundingClientRect().height; }
   function pipWalk(){
     pipEl.classList.add('walking');
     clearTimeout(pipIdleTimer);
     pipIdleTimer = setTimeout(function(){ pipEl.classList.remove('walking'); }, 550);
   }
+  /* Click/tap PIP to make him hop — a click on a <button> covers touch
+     taps too, so no separate touch handler is needed. Restartable: a
+     click mid-hop removes+reflows+re-adds the class so the animation
+     replays from the start instead of being ignored. */
+  pipEl.addEventListener('click', function(){
+    pipEl.classList.remove('jumping');
+    void pipEl.offsetWidth;
+    pipEl.classList.add('jumping');
+  });
+  pipEl.addEventListener('animationend', function(e){
+    if (e.animationName === 'pip-jump') pipEl.classList.remove('jumping');
+  });
+  function currentSceneEl(){
+    if (isDesktop()) return scenes[i];
+    var cy = window.innerHeight / 2;
+    for (var k = 0; k < scenes.length; k++){
+      var r = scenes[k].getBoundingClientRect();
+      if (r.top <= cy && r.bottom >= cy) return scenes[k];
+    }
+    return scenes[0];
+  }
+  function pipObstacles(){
+    var sceneEl = currentSceneEl();
+    if (!sceneEl) return [];
+    var els = [sceneEl.querySelector('.panel'), sceneEl.querySelector('.boss-topics')];
+    var rects = [];
+    els.forEach(function(el){
+      if (!el) return;
+      var r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) rects.push(r);
+    });
+    return rects;
+  }
+  function updatePipPosition(progress){
+    progress = Math.max(0, Math.min(1, progress));
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var pipW = pipWidthPx(), pipH = pipHeightPx();
+    var minX = vw * PIP_MIN_VW;
+    var maxX = Math.max(minX, vw * PIP_MAX_VW - pipW);
+    var desired = minX + (maxX - minX) * progress;
+
+    var groundTop = vh - PIP_BOTTOM_PX - pipH;
+    var groundBottom = vh - PIP_BOTTOM_PX;
+    var allObstacles = pipObstacles();
+    var obstacles = allObstacles.filter(function(o){
+      return o.bottom > groundTop && o.top < groundBottom;
+    });
+
+    function overlapsAt(x, top, bottom){
+      return allObstacles.some(function(o){
+        if (o.bottom <= top || o.top >= bottom) return false;
+        return (x + pipW) > (o.left - PIP_GAP_PX) && x < (o.right + PIP_GAP_PX);
+      });
+    }
+
+    var finalX = desired, finalBottom = PIP_BOTTOM_PX;
+    if (obstacles.length && overlapsAt(finalX, groundTop, groundBottom)){
+      // First choice: side-step left/right of the obstacle at ground level.
+      var candidates = [];
+      obstacles.forEach(function(o){
+        candidates.push(o.left - PIP_GAP_PX - pipW);
+        candidates.push(o.right + PIP_GAP_PX);
+      });
+      candidates = candidates.filter(function(x){
+        return x >= 0 && (x + pipW) <= vw && !overlapsAt(x, groundTop, groundBottom);
+      });
+      if (candidates.length){
+        candidates.sort(function(a, b){ return Math.abs(a - desired) - Math.abs(b - desired); });
+        finalX = candidates[0];
+        pipEl.style.opacity = '1';
+      } else {
+        // No side lane exists (a full-width panel, common on mobile) — stand
+        // in whichever vertical gap is actually clear: below the obstacles
+        // (still low/grounded, just not at the very bottom) if there's room,
+        // otherwise above them. Only fall back to fading out if neither fits.
+        var minTop = Math.min.apply(null, obstacles.map(function(o){ return o.top; }));
+        var maxBottom = Math.max.apply(null, obstacles.map(function(o){ return o.bottom; }));
+        var screenMargin = 8;
+        var belowTop = maxBottom + PIP_GAP_PX;
+        var aboveTop = minTop - PIP_GAP_PX - pipH;
+        var placed = false;
+        if (belowTop + pipH <= vh - screenMargin && !overlapsAt(desired, belowTop, belowTop + pipH)){
+          finalBottom = vh - belowTop - pipH;
+          placed = true;
+        } else if (aboveTop >= screenMargin && !overlapsAt(desired, aboveTop, aboveTop + pipH)){
+          finalBottom = vh - aboveTop - pipH;
+          placed = true;
+        }
+        if (placed){
+          finalX = Math.max(0, Math.min(vw - pipW, desired));
+          pipEl.style.opacity = '1';
+        } else {
+          pipEl.style.opacity = '0';
+        }
+      }
+    } else {
+      pipEl.style.opacity = '1';
+    }
+    pipEl.style.bottom = finalBottom + 'px';
+    pipEl.style.left = finalX + 'px';
+  }
   window.addEventListener('scroll', function(){
-    if (!isDesktop()) pipWalk();
+    if (isDesktop()) return;
+    pipWalk();
+    var maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+    updatePipPosition(maxScroll > 0 ? (window.scrollY / maxScroll) : 0);
   }, { passive:true });
 
   render();
