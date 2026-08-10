@@ -78,13 +78,32 @@ img{ image-rendering:pixelated; }
    trimmed off since it's illegible at this compact a height. */
 .hud-logo{ justify-self:start; height:26px; width:auto; display:block; }
 
+/* Right column of the HUD grid — coin tally + heart row, grouped so
+   the grid still only needs three template columns. */
+.hud-right{ justify-self:end; display:flex; align-items:center; gap:calc(var(--unit)*2); }
+
+/* ---------- Coin tally — live count for the bonus-coin side game.
+   Icon is a static (non-spinning) frame lifted from coin-spin-sheet.png,
+   per hard rule 5: pixel art comes from the uploaded sheets, not CSS. ---------- */
+.hud-coins{
+  display:flex; align-items:center; gap:calc(var(--unit)*.75);
+  font-family:var(--font-hud); color:var(--coin-gold);
+  font-size:1.3rem; letter-spacing:.04em; line-height:1;
+}
+.hud-coins-icon{
+  display:block; width:11px; height:24px; flex:none;
+  background-image:url('assets/coin-spin-sheet.png');
+  background-repeat:no-repeat; background-size:44px 24px; background-position:0 0;
+  image-rendering:pixelated;
+}
+
 /* ---------- Heart row (lives/progress indicator, replaces the old
    text chip). A single pixel-heart shape, defined once as a <symbol>
    and reused — each heart stays hidden until its scene is reached,
    then appears filled coral. Small HUD iconography like this is UI
    chrome, not illustration, so it's built directly rather than pulled
    from an image asset. ---------- */
-.hud-hearts{ justify-self:end; display:flex; align-items:center; gap:calc(var(--unit)*.85); }
+.hud-hearts{ display:flex; align-items:center; gap:calc(var(--unit)*.85); }
 
 /* Sound toggle — a plain bordered text box, band5051-style, fixed to
    the bottom-left corner rather than tucked into the HUD. */
@@ -115,51 +134,85 @@ img{ image-rendering:pixelated; }
   flex:0 0 100vw; width:100vw; height:100vh; position:relative;
   display:flex; align-items:center; justify-content:center;
   padding:calc(var(--unit)*4);
+  overflow:hidden;
   /* Placeholder sky gradient until each scene gets its bg-*.png */
   background:linear-gradient(180deg, var(--sky-deep) 0%, var(--sky-light) 100%);
 }
 
 /* ============================================================
-   AMBIENT LAYER — persistent PIP companion + floating coins.
-   Both run on fixed CSS timers only, never on scroll position or
-   speed (the brief explicitly flags scroll-bound sprite animation
-   as fragile across devices/input methods). Sits at z-index:1 —
-   above scene art (0), below every .panel (2), so text never gets
-   walked over. Native frame size is 350x784 per frame in both
-   sheets; display size below is that ratio scaled down. */
+   AMBIENT LAYER — persistent PIP companion.
+   Sits at z-index:1 — above scene art (0), below every .panel (2),
+   so text never gets walked over. Native frame size is 350x784 per
+   frame in the sheet.
+
+   PIP only makes forward progress while the user is actively
+   scrolling/stepping (JS toggles the .walking class — see the script
+   at the bottom); animation-play-state:paused freezes him exactly
+   where he stood rather than resetting him, so he picks back up
+   mid-stride next time the scene moves. The step-cycle timer itself
+   still runs on its own fixed interval whenever .walking is active —
+   never derived from scroll distance/speed — so the frame the legs
+   land on is not bound to scroll position, per the brand brief.
+
+   The crop-then-scale split below (a native-scale clip via the
+   element's own box, then a separate transform:scale) exists because
+   each 350x784 native frame has a baked-in white strip along its
+   bottom-right edge, and downscaling straight through a heavily
+   minified background-size let the browser's texture filtering bleed
+   that white in as a flickering line at PIP's small display size.
+   Clipping at 1:1 native resolution first (via width/height) avoids
+   that minification step entirely; the outer transform then scales
+   an already-crisp, already-cropped bitmap down to display size. */
 .pip{
   position:fixed; z-index:1; bottom:14px; left:-70px;
-  width:48px; height:107px;
+  width:324px; height:764px; /* native-scale crop window: trims the frame's white bottom-right edge */
+  transform-origin:left bottom;
+  transform:scale(0.14814815); /* 48/324 — final on-screen size is 48x113 */
   background-image:url('assets/pip-walk-sheet.png');
-  background-repeat:no-repeat; background-size:192px 107px;
+  background-repeat:no-repeat; background-position:0 0;
   image-rendering:pixelated; pointer-events:none;
   animation: pip-cycle .64s steps(4) infinite, pip-stroll 12s linear infinite;
+  animation-play-state:paused;
 }
-@keyframes pip-cycle{ from{ background-position-x:0; } to{ background-position-x:-192px; } }
+.pip.walking{ animation-play-state:running; }
+@keyframes pip-cycle{ from{ background-position-x:0; } to{ background-position-x:-1400px; } }
 @keyframes pip-stroll{ 0%{ left:-70px; } 100%{ left:calc(100% + 70px); } }
 
-.coin{
-  position:fixed; z-index:1; pointer-events:none; opacity:.85;
-  width:26px; height:58px;
-  background-image:url('assets/coin-spin-sheet.png');
-  background-repeat:no-repeat; background-size:104px 58px;
-  image-rendering:pixelated;
-  animation: coin-spin .8s steps(4) infinite, coin-float 4s ease-in-out infinite;
+@media (prefers-reduced-motion:reduce){
+  .pip{ animation:none; display:none; }
 }
-@keyframes coin-spin{ from{ background-position-x:0; } to{ background-position-x:-104px; } }
-@keyframes coin-float{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-14px); } }
-.coin--a{ top:12%; left:5%; animation-delay:0s; }
-.coin--b{ top:15%; right:6%; animation-delay:1.1s; }
-.coin--c{ bottom:16%; right:9%; animation-delay:2.1s; }
+
+/* ---------- Bonus coin side-game ----------
+   A single clickable coin that appears at a random spot, spins, and is
+   despawned by JS after 3s if it isn't clicked. Sits above the HUD and
+   every panel (z-index) so it's always reachable while it's live. */
+.bonus-coin{
+  position:fixed; z-index:50; top:0; left:0;
+  width:34px; height:76px; padding:0; border:none; background-color:transparent;
+  background-image:url('assets/coin-spin-sheet.png');
+  background-repeat:no-repeat; background-size:136px 76px;
+  image-rendering:pixelated; cursor:pointer;
+  filter:drop-shadow(0 0 6px rgba(255,201,60,.65));
+  animation: coin-spin .8s steps(4) infinite;
+}
+.bonus-coin[hidden]{ display:none; }
+.bonus-coin.pop{ animation: coin-spin .8s steps(4) infinite, coin-pop .3s ease forwards; }
+@keyframes coin-pop{ to{ transform:scale(1.7); opacity:0; } }
+.bonus-coin:focus-visible{ outline:3px solid var(--lime); outline-offset:4px; }
 
 @media (prefers-reduced-motion:reduce){
-  .pip,.coin{ animation:none; display:none; }
+  .bonus-coin{ animation:none; }
+  .bonus-coin.pop{ animation:none; opacity:0; }
 }
 
-/* ---------- Real scene background layer (shared by all built scenes) ---------- */
+/* ---------- Real scene background layer (shared by all built scenes) ----------
+   Every exported bg-*.png has a thin baked-in white edge along its right and
+   bottom sides. A small center-scale crops that edge out of view instead of
+   requiring the source art to be re-exported. */
 .scene-bg{
   position:absolute; inset:0; width:100%; height:100%;
   object-fit:cover; z-index:0;
+  transform:scale(1.05);
 }
 
 /* ---------- Panel: dialogue-box content container for built scenes ----------
@@ -274,6 +327,11 @@ img{ image-rendering:pixelated; }
   font-family:var(--font-hud); color:var(--cream); opacity:.6;
   font-size:.95rem; letter-spacing:.04em; margin-top:calc(var(--unit)*1.25);
 }
+.panel .coin-tally{
+  font-family:var(--font-hud); color:var(--coin-gold);
+  font-size:1.15rem; letter-spacing:.05em;
+  margin-bottom:calc(var(--unit)*2.5);
+}
 
 /* Numbered step list — numbering is earned here: these are four real,
    ordered steps in the actual process, not decorative sequencing. */
@@ -312,6 +370,7 @@ img{ image-rendering:pixelated; }
 .loader-bg{
   position:absolute; inset:0; width:100%; height:100%;
   object-fit:cover; z-index:0;
+  transform:scale(1.05); /* crops the same baked-in white edge as .scene-bg */
 }
 .loader-scrim{
   position:absolute; inset:0; z-index:1;
@@ -370,14 +429,53 @@ img{ image-rendering:pixelated; }
    Same content + art, top to bottom instead of left to right.
    ============================================================ */
 @media (max-width:768px){
-  body{ overflow:auto; }
-  .hud{ position:sticky; }
+  body{ overflow-x:hidden; overflow-y:auto; }
   .viewport{ position:static; overflow:visible; height:auto; }
   .track{
     flex-direction:column; width:100%; height:auto;
     transform:none !important; transition:none;
   }
-  .scene{ flex:none; width:100%; height:auto; min-height:100vh; }
+  .scene{ flex:none; width:100%; height:auto; min-height:100vh; padding:calc(var(--unit)*3) calc(var(--unit)*2.5); }
+
+  /* HUD: logo + coins/hearts on one row, the event chip on its own row
+     below — three items no longer fight for space on one narrow line. */
+  .hud{
+    position:sticky;
+    grid-template-columns:1fr auto; grid-template-rows:auto auto;
+    grid-template-areas:"logo right" "chip chip";
+    row-gap:calc(var(--unit)*1); column-gap:calc(var(--unit)*1.5);
+    padding:calc(var(--unit)*1.25) calc(var(--unit)*1.5);
+  }
+  .hud-logo{ grid-area:logo; height:20px; }
+  .hud-right{ grid-area:right; gap:calc(var(--unit)*1.5); }
+  .hud .chip{ grid-area:chip; font-size:.8rem; padding:calc(var(--unit)*.4) calc(var(--unit)*1.1); }
+  .hud-coins{ font-size:1.05rem; gap:calc(var(--unit)*.5); }
+  .hud-coins-icon{ width:9px; height:19px; }
+  .hud-hearts{ gap:calc(var(--unit)*.5); }
+  .heart{ width:17px; height:15px; }
+
+  .sound-toggle{ left:calc(var(--unit)*1.5); bottom:calc(var(--unit)*1.5); font-size:.9rem; padding:calc(var(--unit)*.6) calc(var(--unit)*1.4); }
+
+  .panel{ padding:calc(var(--unit)*2.75) calc(var(--unit)*3); max-width:100%; }
+  .panel h2{ margin-bottom:calc(var(--unit)*2); }
+  .panel .body-copy{ font-size:1.1rem; }
+
+  /* .scene is a row flexbox by default; scene--final-bosses is the one
+     scene with two flex children (panel + boss-topics), so without a
+     column override here they were squeezed side by side into a single
+     ~150px-wide sliver instead of stacking — the main source of the
+     cramped mobile layout. */
+  .scene--final-bosses{
+    flex-direction:column; align-items:stretch; justify-content:flex-start;
+    gap:calc(var(--unit)*3); padding-top:calc(var(--unit)*3);
+  }
+
+  /* Boss topics: full-width single column instead of a cramped 2-up
+     grid, which was tight enough on narrow phones to risk overflow. */
+  .boss-topics{ position:static; width:100%; margin-top:0; padding:0; gap:calc(var(--unit)*1.25); }
+  .boss-topic{ flex:1 1 100%; max-width:100%; }
+
+  .bonus-coin{ width:28px; height:63px; }
 }
 
 /* ---------- Accessibility ---------- */
@@ -409,23 +507,33 @@ img{ image-rendering:pixelated; }
   <audio id="bgm" src="assets/bgm.mp3" loop preload="auto"></audio>
   <button type="button" id="muteBtn" class="sound-toggle" aria-pressed="false">SOUND ON</button>
 
-  <!-- Ambient companions — pure CSS timers, never tied to scroll -->
+  <!-- Ambient companion — walks only while the user is scrolling/stepping -->
   <div class="pip" aria-hidden="true"></div>
-  <div class="coin coin--a" aria-hidden="true"></div>
-  <div class="coin coin--b" aria-hidden="true"></div>
-  <div class="coin coin--c" aria-hidden="true"></div>
+
+  <!-- Bonus coin side-game — three coins, each independently spawning at a
+       random spot, spinning, and despawning after 3s if unclicked. A click
+       awards +10 and that coin respawns elsewhere shortly after. -->
+  <button type="button" class="bonus-coin" data-coin aria-label="Collect coin — worth 10" hidden></button>
+  <button type="button" class="bonus-coin" data-coin aria-label="Collect coin — worth 10" hidden></button>
+  <button type="button" class="bonus-coin" data-coin aria-label="Collect coin — worth 10" hidden></button>
 
   <!-- HUD -->
   <header class="hud">
     <img class="hud-logo" src="assets/tnp-logo.png" alt="TNP" />
     <span class="chip">TNP Perfect Pitch 2026</span>
-    <div class="hud-hearts" aria-hidden="true">
-      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
-      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
-      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
-      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
-      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
-      <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+    <div class="hud-right">
+      <div class="hud-coins" aria-live="polite">
+        <span class="hud-coins-icon" aria-hidden="true"></span>
+        <span id="coinCountValue">0</span>
+      </div>
+      <div class="hud-hearts" aria-hidden="true">
+        <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+        <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+        <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+        <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+        <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+        <span class="heart"><svg><use href="#heart-icon"/></svg></span>
+      </div>
     </div>
   </header>
 
@@ -483,10 +591,9 @@ img{ image-rendering:pixelated; }
         <img class="scene-bg" src="assets/bg-gather-squad.png" alt="" />
         <div class="panel">
           <h2>GATHER YOUR SQUAD</h2>
-          <p class="body-copy">Teams of 1 to 3 are welcome &mdash; solo runs count too. Cross-department squads are actively encouraged; the best ideas at TNP rarely sit inside one department. Every TNP India employee is eligible, and if you're based outside Kochi, you can join and present virtually with prior MarCom approval.</p>
+          <p class="body-copy">Teams of 1 to 3 are welcome &mdash; solo runs count too. Cross-department squads are actively encouraged; the best ideas at TNP rarely sit inside one department. Every TNP India employee is eligible.</p>
           <div class="badge-row">
             <div class="badge">1&ndash;3 PLAYERS PER TEAM</div>
-            <div class="badge">10 TEAM SLOTS</div>
           </div>
         </div>
       </section>
@@ -524,6 +631,7 @@ img{ image-rendering:pixelated; }
         <img class="scene-bg" src="assets/bg-register.png" alt="" />
         <div class="panel">
           <h2>REGISTER</h2>
+          <p class="coin-tally">COINS COLLECTED THIS RUN: <span id="totalCoinsCollected">0</span></p>
           <!--
             PLACEHOLDER — replace PASTE_MICROSOFT_FORM_URL_HERE with the
             real Microsoft Form link once it's built. This link only ever
@@ -578,6 +686,7 @@ img{ image-rendering:pixelated; }
     n = Math.max(0, Math.min(TOTAL-1, n));
     if(n === i) return;
     i = n; render();
+    pipWalk();
   }
 
   function step(dir){
@@ -650,6 +759,9 @@ img{ image-rendering:pixelated; }
     loader.classList.add('hidden'); ready = true; render();
     bgm.volume = 0.55;
     bgm.play().catch(function(){ /* if it's still blocked, the mute icon just reflects paused state */ });
+    bonusCoins.forEach(function(el, idx){
+      setTimeout(function(){ spawnCoin(el, coinState[idx]); }, idx * 550);
+    });
   }
   startBtn.addEventListener('click', start);
   window.addEventListener('keydown', function(e){
@@ -666,6 +778,80 @@ img{ image-rendering:pixelated; }
     updateMuteUI();
   });
   updateMuteUI();
+
+  /* ---------- Bonus coin side-game ----------
+     Several coins (one per .bonus-coin button) each run their own
+     independent spawn cycle: appear at a random spot, spin, and
+     despawn after 3s if unclicked. A click awards +10, updates the
+     HUD tally and the Register-scene running total, then that same
+     coin respawns elsewhere shortly after. Kicked off (staggered) from
+     start() so nothing appears over the loading screen. */
+  var bonusCoins = Array.prototype.slice.call(document.querySelectorAll('.bonus-coin'));
+  var coinCountEl = document.getElementById('coinCountValue');
+  var totalCoinsEl = document.getElementById('totalCoinsCollected');
+  var coinScore = 0;
+  var COIN_LIFETIME_MS = 3000, COIN_RESPAWN_GAP_MS = 900;
+  var coinState = bonusCoins.map(function(){ return { lifeTimer:null, spawnTimer:null }; });
+
+  function updateCoinDisplays(){
+    coinCountEl.textContent = coinScore;
+    if (totalCoinsEl) totalCoinsEl.textContent = coinScore;
+  }
+
+  function randomCoinSpot(){
+    var margin = { top:76, side:20, bottom:76 };
+    var w = window.innerWidth, h = window.innerHeight;
+    var maxX = Math.max(0, w - 34 - margin.side * 2);
+    var maxY = Math.max(0, h - 76 - margin.top - margin.bottom);
+    return {
+      x: margin.side + Math.random() * maxX,
+      y: margin.top + Math.random() * maxY
+    };
+  }
+
+  function spawnCoin(el, state){
+    var spot = randomCoinSpot();
+    el.style.left = spot.x + 'px';
+    el.style.top = spot.y + 'px';
+    el.classList.remove('pop');
+    el.hidden = false;
+    clearTimeout(state.lifeTimer);
+    state.lifeTimer = setTimeout(function(){
+      el.hidden = true;
+      state.spawnTimer = setTimeout(function(){ spawnCoin(el, state); }, COIN_RESPAWN_GAP_MS);
+    }, COIN_LIFETIME_MS);
+  }
+
+  bonusCoins.forEach(function(el, idx){
+    var state = coinState[idx];
+    el.addEventListener('click', function(){
+      coinScore += 10;
+      updateCoinDisplays();
+      clearTimeout(state.lifeTimer);
+      el.classList.add('pop');
+      setTimeout(function(){ el.hidden = true; }, 260);
+      clearTimeout(state.spawnTimer);
+      state.spawnTimer = setTimeout(function(){ spawnCoin(el, state); }, COIN_RESPAWN_GAP_MS);
+    });
+  });
+
+  /* ---------- PIP walks only while the scene is actually moving ----------
+     .walking just toggles animation-play-state (see .pip.walking in the
+     CSS) — a short idle timeout re-pauses him a beat after the last
+     scroll/step input. goTo() already calls this on every desktop
+     step/keyboard/swipe move; the scroll listener below covers the
+     mobile vertical-stack layout, where scenes move via native scroll
+     instead of goTo(). */
+  var pipEl = document.querySelector('.pip');
+  var pipIdleTimer = null;
+  function pipWalk(){
+    pipEl.classList.add('walking');
+    clearTimeout(pipIdleTimer);
+    pipIdleTimer = setTimeout(function(){ pipEl.classList.remove('walking'); }, 550);
+  }
+  window.addEventListener('scroll', function(){
+    if (!isDesktop()) pipWalk();
+  }, { passive:true });
 
   render();
 })();
