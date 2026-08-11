@@ -188,10 +188,14 @@ img{ image-rendering:pixelated; }
 @keyframes pip-cycle{ from{ background-position-x:0; } to{ background-position-x:-1400px; } }
 /* translateY is the OUTER transform function here, so its px value stays
    a fixed screen-space hop regardless of --pip-scale — one set of
-   keyframes works for both the desktop and mobile sizes. */
+   keyframes works for both the desktop and mobile sizes. --pip-jump-height
+   is computed and set inline by the click handler each time (distance from
+   PIP's current position to near the top of the viewport), since how far
+   "almost the top of the screen" is depends on where he's currently
+   standing, which varies by scene/collision-avoidance/breakpoint. */
 @keyframes pip-jump{
   0%, 100%{ transform:translateY(0) scale(var(--pip-scale)); }
-  45%{ transform:translateY(-42px) scale(var(--pip-scale)); }
+  45%{ transform:translateY(var(--pip-jump-height, -42px)) scale(var(--pip-scale)); }
 }
 
 @media (prefers-reduced-motion:reduce){
@@ -199,21 +203,35 @@ img{ image-rendering:pixelated; }
 }
 
 /* ---------- Bonus coin side-game ----------
-   A single clickable coin that appears at a random spot, spins, and is
-   despawned by JS after 3s if it isn't clicked. Sits above the HUD and
-   every panel (z-index) so it's always reachable while it's live. */
+   Coins appear at a random spot during each scene's 15s collection
+   window, spin, and are despawned by JS after 3s if unclicked. Sit
+   above the HUD and every panel (z-index) so they're always reachable
+   while live.
+
+   Same crisp-then-scale technique as .pip: the element's own box is
+   the coin sheet's native 350x784 frame size (no background-size
+   minification), and a separate outer transform:scale shrinks the
+   already-crisp bitmap down to display size. Rendering coin-spin-sheet
+   straight through a ~10x-minified background-size let the browser's
+   texture filtering pull in a sliver of the neighbouring frame at the
+   tile edge, reading as a clipped/cut-off coin — this avoids that. */
 .bonus-coin{
+  --coin-scale:0.09714286; /* 34/350 — desktop display size */
   position:fixed; z-index:50; top:0; left:0;
-  width:34px; height:76px; padding:0; border:none; background-color:transparent;
+  width:350px; height:784px;
+  transform-origin:top left;
+  transform:scale(var(--coin-scale));
+  padding:0; border:none; background-color:transparent;
   background-image:url('assets/coin-spin-sheet.png');
-  background-repeat:no-repeat; background-size:136px 76px;
+  background-repeat:no-repeat; background-position:0 0;
   image-rendering:pixelated; cursor:pointer;
   filter:drop-shadow(0 0 6px rgba(255,201,60,.65));
-  animation: coin-spin .8s steps(4) infinite;
+  animation: coin-spin-native .8s steps(4) infinite;
 }
 .bonus-coin[hidden]{ display:none; }
-.bonus-coin.pop{ animation: coin-spin .8s steps(4) infinite, coin-pop .3s ease forwards; }
-@keyframes coin-pop{ to{ transform:scale(1.7); opacity:0; } }
+.bonus-coin.pop{ animation: coin-spin-native .8s steps(4) infinite, coin-pop .3s ease forwards; }
+@keyframes coin-spin-native{ from{ background-position-x:0; } to{ background-position-x:-1400px; } }
+@keyframes coin-pop{ to{ transform:scale(calc(var(--coin-scale) * 1.7)); opacity:0; } }
 .bonus-coin:focus-visible{ outline:3px solid var(--lime); outline-offset:4px; }
 
 @media (prefers-reduced-motion:reduce){
@@ -265,6 +283,30 @@ img{ image-rendering:pixelated; }
 .panel .badge--gold{ color:var(--coin-gold); border-color:var(--coin-gold); }
 .panel .badge--silver{ color:var(--cream); border-color:var(--cream); }
 .panel .badge--bronze{ color:var(--coral); border-color:var(--coral); }
+
+/* ---------- Hint icon (Scene 1 only) ----------
+   A small "?" badge on the corner of the panel that discloses a short
+   explainer for the coin side-game. Square + sharp-cornered like every
+   other badge/panel on the site, not a CSS circle, to stay consistent
+   with the pixel-art hard-edge rule. */
+.hint-icon{
+  position:absolute; top:calc(var(--unit)*-2); right:calc(var(--unit)*-2); z-index:3;
+  width:34px; height:34px; display:flex; align-items:center; justify-content:center;
+  font-family:var(--font-display); font-size:.9rem; line-height:1;
+  color:var(--coin-gold); background:var(--void); border:2px solid var(--coin-gold);
+  cursor:pointer; padding:0;
+}
+.hint-icon:focus-visible{ outline:3px solid var(--lime); outline-offset:3px; }
+.hint-popover{
+  position:absolute; top:calc(var(--unit)*2.75); right:0; z-index:4;
+  width:min(80vw, 300px);
+  background:var(--void); border:2px solid var(--coin-gold);
+  padding:calc(var(--unit)*2);
+  font-family:var(--font-hud); color:var(--cream); font-size:1.05rem; line-height:1.4;
+}
+.hint-popover[hidden]{ display:none; }
+.hint-popover strong{ color:var(--coin-gold); }
+.hint-popover p + p{ margin-top:calc(var(--unit)*1.25); }
 
 /* Scene 1 composition: panel sits left, leaving the coin jar on the
    right of bg-what-is-this.png in view. Collapses to centered before
@@ -500,7 +542,7 @@ img{ image-rendering:pixelated; }
   .boss-topics{ position:static; width:100%; margin-top:0; padding:0; gap:calc(var(--unit)*1.25); }
   .boss-topic{ flex:1 1 100%; max-width:100%; }
 
-  .bonus-coin{ width:28px; height:63px; }
+  .bonus-coin{ --coin-scale:0.08; } /* 28/350 */
 
   /* PIP's desktop size (160px wide, ~377px tall) genuinely doesn't fit
      in the gap above or below several tall, full-width mobile panels —
@@ -577,6 +619,11 @@ img{ image-rendering:pixelated; }
       <section class="scene scene--what-is-this" aria-label="Scene 1: What is this?">
         <img class="scene-bg" src="assets/bg-what-is-this.png" alt="" />
         <div class="panel">
+          <button type="button" class="hint-icon" id="hintIcon" aria-expanded="false" aria-controls="hintPopover">?</button>
+          <div class="hint-popover" id="hintPopover" hidden>
+            <p><strong>GOLD COINS ARE HIDDEN ON EVERY SCREEN.</strong></p>
+            <p>You get 15 seconds per screen to tap them for +10 each. Scroll back to an earlier screen and you lose what you've collected &mdash; no continues.</p>
+          </div>
           <h2>WHAT IS THIS?</h2>
           <p class="body-copy">TNP Perfect Pitch is a Shark Tank&ndash;style pitch competition, open to every TNP India employee. Bring an idea &mdash; a product, a service, a process fix, anything &mdash; and pitch it live to a panel of external judges: five minutes to make your case, followed by a round of investor-style questions. No department gatekeeps a good idea here. If you have one, this is where you bring it.</p>
           <div class="badge-row"><div class="badge">16 SEPTEMBER 2026</div></div>
@@ -721,6 +768,7 @@ img{ image-rendering:pixelated; }
     i = n; render();
     pipWalk();
     updatePipPosition(i / (TOTAL - 1));
+    onSceneChanged(i);
   }
 
   function step(dir){
@@ -794,9 +842,7 @@ img{ image-rendering:pixelated; }
     updatePipPosition(i / (TOTAL - 1));
     bgm.volume = 0.55;
     bgm.play().catch(function(){ /* if it's still blocked, the mute icon just reflects paused state */ });
-    bonusCoins.forEach(function(el, idx){
-      setTimeout(function(){ spawnCoin(el, coinState[idx]); }, idx * 550);
-    });
+    onSceneChanged(i);
   }
   startBtn.addEventListener('click', start);
   window.addEventListener('keydown', function(e){
@@ -815,37 +861,62 @@ img{ image-rendering:pixelated; }
   updateMuteUI();
 
   /* ---------- Bonus coin side-game ----------
-     Several coins (one per .bonus-coin button) each run their own
-     independent spawn cycle: appear at a random spot, spin, and
-     despawn after 3s if unclicked. A click awards +10, updates the
-     HUD tally and the Register-scene running total, then that same
-     coin respawns elsewhere shortly after. Kicked off (staggered) from
-     start() so nothing appears over the loading screen. */
+     Each scene gets a 15s collection window the moment it becomes
+     current (see onSceneChanged()/startCoinWindow() below). While a
+     window is open, coins (one per .bonus-coin button) each run their
+     own independent spawn cycle: appear at a random spot clear of the
+     current scene's panel/boss-topics, spin, and despawn after 3s if
+     unclicked; a click awards +10 and that coin respawns elsewhere
+     shortly after. Once 15s is up, spawning stops and any coin still
+     showing disappears until the next scene starts its own window.
+     Moving BACKWARD to an earlier scene forfeits the run entirely —
+     score resets to 0 — so reaching Scene 1 always reads 0. */
   var bonusCoins = Array.prototype.slice.call(document.querySelectorAll('.bonus-coin'));
   var coinCountEl = document.getElementById('coinCountValue');
   var totalCoinsEl = document.getElementById('totalCoinsCollected');
   var coinScore = 0;
-  var COIN_LIFETIME_MS = 3000, COIN_RESPAWN_GAP_MS = 900;
+  var COIN_LIFETIME_MS = 3000, COIN_RESPAWN_GAP_MS = 900, COIN_WINDOW_MS = 15000;
   var coinState = bonusCoins.map(function(){ return { lifeTimer:null, spawnTimer:null }; });
+  var windowActive = false, coinWindowTimer = null, lastSceneIndex = -1;
 
   function updateCoinDisplays(){
     coinCountEl.textContent = coinScore;
     if (totalCoinsEl) totalCoinsEl.textContent = coinScore;
   }
 
-  function randomCoinSpot(){
+  function coinSizePx(){
+    return isDesktop() ? { w:34, h:76 } : { w:28, h:63 };
+  }
+
+  /* Rejection-samples a spot clear of the current scene's panel/
+     boss-topics (reusing the same obstacle rects PIP dodges), rather
+     than a fixed zone, since panel size/position varies by scene and
+     viewport. Falls back to its last try if nothing clean turns up in
+     a few attempts — better to occasionally sit close to the panel
+     edge than spin forever. */
+  function randomCoinSpot(coinW, coinH){
     var margin = { top:76, side:20, bottom:76 };
     var w = window.innerWidth, h = window.innerHeight;
-    var maxX = Math.max(0, w - 34 - margin.side * 2);
-    var maxY = Math.max(0, h - 76 - margin.top - margin.bottom);
-    return {
-      x: margin.side + Math.random() * maxX,
-      y: margin.top + Math.random() * maxY
-    };
+    var maxX = Math.max(0, w - coinW - margin.side * 2);
+    var maxY = Math.max(0, h - coinH - margin.top - margin.bottom);
+    var obstacles = pipObstacles();
+    var spot = { x: margin.side, y: margin.top };
+    for (var attempt = 0; attempt < 10; attempt++){
+      var x = margin.side + Math.random() * maxX;
+      var y = margin.top + Math.random() * maxY;
+      spot = { x:x, y:y };
+      var hits = obstacles.some(function(o){
+        return !(x + coinW < o.left || x > o.right || y + coinH < o.top || y > o.bottom);
+      });
+      if (!hits) break;
+    }
+    return spot;
   }
 
   function spawnCoin(el, state){
-    var spot = randomCoinSpot();
+    if (!windowActive) return;
+    var size = coinSizePx();
+    var spot = randomCoinSpot(size.w, size.h);
     el.style.left = spot.x + 'px';
     el.style.top = spot.y + 'px';
     el.classList.remove('pop');
@@ -853,13 +924,50 @@ img{ image-rendering:pixelated; }
     clearTimeout(state.lifeTimer);
     state.lifeTimer = setTimeout(function(){
       el.hidden = true;
-      state.spawnTimer = setTimeout(function(){ spawnCoin(el, state); }, COIN_RESPAWN_GAP_MS);
+      if (windowActive) state.spawnTimer = setTimeout(function(){ spawnCoin(el, state); }, COIN_RESPAWN_GAP_MS);
     }, COIN_LIFETIME_MS);
+  }
+
+  function stopAllCoins(){
+    bonusCoins.forEach(function(el, idx){
+      var state = coinState[idx];
+      clearTimeout(state.lifeTimer);
+      clearTimeout(state.spawnTimer);
+      el.hidden = true;
+      el.classList.remove('pop');
+    });
+  }
+
+  function startCoinWindow(){
+    clearTimeout(coinWindowTimer);
+    stopAllCoins();
+    windowActive = true;
+    bonusCoins.forEach(function(el, idx){
+      coinState[idx].spawnTimer = setTimeout(function(){ spawnCoin(el, coinState[idx]); }, idx * 550);
+    });
+    coinWindowTimer = setTimeout(function(){
+      windowActive = false;
+      stopAllCoins();
+    }, COIN_WINDOW_MS);
+  }
+
+  /* The single hook every scene-change path (desktop goTo(), mobile
+     scroll) calls into. Forfeits the score on any backward move, then
+     always restarts the window fresh for wherever you land. */
+  function onSceneChanged(newIndex){
+    if (newIndex === lastSceneIndex) return;
+    if (newIndex < lastSceneIndex){
+      coinScore = 0;
+      updateCoinDisplays();
+    }
+    lastSceneIndex = newIndex;
+    startCoinWindow();
   }
 
   bonusCoins.forEach(function(el, idx){
     var state = coinState[idx];
     el.addEventListener('click', function(){
+      if (!windowActive) return;
       coinScore += 10;
       updateCoinDisplays();
       clearTimeout(state.lifeTimer);
@@ -910,8 +1018,17 @@ img{ image-rendering:pixelated; }
   /* Click/tap PIP to make him hop — a click on a <button> covers touch
      taps too, so no separate touch handler is needed. Restartable: a
      click mid-hop removes+reflows+re-adds the class so the animation
-     replays from the start instead of being ignored. */
+     replays from the start instead of being ignored. Jump height is
+     computed fresh each time from his CURRENT position (he can be
+     standing at ground level, or above/below an obstacle via the
+     collision-avoidance in updatePipPosition) so the hop always reaches
+     up near the top of the viewport rather than a fixed, sometimes-
+     too-short distance. */
   pipEl.addEventListener('click', function(){
+    var top = pipEl.getBoundingClientRect().top;
+    var screenMargin = 20;
+    var jumpPx = Math.max(60, top - screenMargin);
+    pipEl.style.setProperty('--pip-jump-height', '-' + jumpPx + 'px');
     pipEl.classList.remove('jumping');
     void pipEl.offsetWidth;
     pipEl.classList.add('jumping');
@@ -1013,7 +1130,28 @@ img{ image-rendering:pixelated; }
     pipWalk();
     var maxScroll = document.documentElement.scrollHeight - window.innerHeight;
     updatePipPosition(maxScroll > 0 ? (window.scrollY / maxScroll) : 0);
+    var idx = scenes.indexOf(currentSceneEl());
+    if (idx >= 0) onSceneChanged(idx);
   }, { passive:true });
+
+  /* ---------- Hint icon (Scene 1) ----------
+     Click/tap toggles a short explainer for the coin side-game. */
+  var hintIcon = document.getElementById('hintIcon');
+  var hintPopover = document.getElementById('hintPopover');
+  if (hintIcon && hintPopover){
+    hintIcon.addEventListener('click', function(e){
+      e.stopPropagation();
+      var opening = hintPopover.hidden;
+      hintPopover.hidden = !opening;
+      hintIcon.setAttribute('aria-expanded', String(opening));
+    });
+    document.addEventListener('click', function(e){
+      if (!hintPopover.hidden && e.target !== hintIcon && !hintPopover.contains(e.target)){
+        hintPopover.hidden = true;
+        hintIcon.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
 
   render();
 })();
