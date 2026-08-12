@@ -976,6 +976,18 @@ img{ image-rendering:pixelated; }
   function start(){
     if (ready || !loaderCta.classList.contains('show')) return;
     loader.classList.add('hidden'); ready = true; render();
+    /* .loader.hidden sets pointer-events:none on the loader itself, but
+       .loader-cta.show explicitly re-enables pointer-events:auto on the
+       CTA area (needed so it's clickable while the loader is visible) —
+       a child's own pointer-events always wins over an ancestor's, so
+       that override survives the loader being hidden and left #startBtn
+       sitting there, invisible but still clickable, right on top of
+       whichever real scene content later occupies the same bottom-center
+       spot (Register's CTA lines up here). Dropping display to none once
+       the fade finishes removes the whole loader from hit-testing for
+       good, regardless of any pointer-events override on its children. */
+    loaderCta.classList.remove('show');
+    setTimeout(function(){ loader.style.display = 'none'; }, 520);
     updatePipPosition(i / (TOTAL - 1));
     bgm.volume = 0.55;
     bgm.play().catch(function(){ /* if it's still blocked, the mute icon just reflects paused state */ });
