@@ -385,12 +385,17 @@ img{ image-rendering:pixelated; }
 }
 
 /* Scene 1 composition: panel sits left, leaving the coin jar on the
-   right of bg-what-is-this.png in view. Collapses to centered before
-   the mobile breakpoint, since vertical stacking wants a centered card. */
-.scene--what-is-this{ justify-content:flex-start; padding-left:calc(var(--unit)*9); }
-@media (max-width:1000px){
-  .scene--what-is-this{ justify-content:center; padding-left:calc(var(--unit)*4); }
-}
+   right of bg-what-is-this.png in view.
+
+   padding-left is a vw-scaled calc, not a fixed px value, because PIP's
+   OWN starting position (see PIP_MIN_VW in the script) is also vw-scaled
+   — he starts at 5vw from the left, 160px wide on desktop/tablet. A
+   fixed padding could clear him at one viewport width and fail at
+   another, so this tracks his right edge (5vw + his width) plus a 10px
+   gap directly, staying correct across the whole desktop/tablet range.
+   Capped in practice by the panel's own max-width:560px, so this can't
+   push it into overflow even at the narrow end of the tablet tier. */
+.scene--what-is-this{ justify-content:flex-start; padding-left:calc(5vw + 170px); }
 
 /* Scene 2 composition: panel anchored high, leaving the four ascending
    brick platforms + flag visible along the ground in bg-how-to-play.png. */
@@ -445,10 +450,17 @@ img{ image-rendering:pixelated; }
 .panel .callout--teal{ color:var(--teal); margin-top:calc(var(--unit)*1); }
 
 /* Scene 5 composition: panel offset right, leaving the glowing coin
-   jar — the Vault itself — unobstructed on the left of bg-how-you-win.png. */
-.scene--how-you-win{ justify-content:flex-end; padding-right:calc(var(--unit)*9); }
+   jar — the Vault itself — unobstructed on the left of bg-how-you-win.png.
+
+   align-items:flex-start (added) moves the panel up from the scene's
+   default vertical centering, opening up real ground-level clearance
+   below it for PIP — a centered panel here had roughly the same gap
+   above and below it (~125px each on a typical mobile viewport); top-
+   anchoring it leaves the panel's own height eating into the top gap
+   instead, more than doubling the clear space below. */
+.scene--how-you-win{ justify-content:flex-end; align-items:flex-start; padding-right:calc(var(--unit)*9); padding-top:calc(var(--unit)*7); }
 @media (max-width:1000px){
-  .scene--how-you-win{ justify-content:center; padding-right:calc(var(--unit)*4); }
+  .scene--how-you-win{ justify-content:center; padding-right:calc(var(--unit)*4); padding-top:calc(var(--unit)*4); }
 }
 
 /* Scene 6 composition: panel anchored low, echoing the loading screen's
@@ -554,7 +566,13 @@ img{ image-rendering:pixelated; }
   transition:transform .12s ease, box-shadow .12s ease, background-color .12s ease;
 }
 .cta-button:hover{ background:#6dff96; transform:translateY(-2px); box-shadow:0 6px 0 #1a8f45; }
-.cta-button:active{ transform:translateY(2px); box-shadow:0 2px 0 #1a8f45; }
+/* .pressed, not :active — the Register CTA opens a new tab (target="_blank"),
+   and on some browsers focus moving to that new tab means the original
+   page never gets the mouseup/blur that would normally clear :active,
+   leaving the button visibly stuck in its pressed-down state. That reads
+   as "broken after the first click" even though the link itself still
+   works. A JS-managed class with its own timeout always clears. */
+.cta-button.pressed{ transform:translateY(2px); box-shadow:0 2px 0 #1a8f45; }
 
 .loader-cta .sub{
   margin-top:calc(var(--unit)*1.5);
@@ -633,6 +651,13 @@ img{ image-rendering:pixelated; }
   .panel{ padding:calc(var(--unit)*2.75) calc(var(--unit)*3); max-width:100%; }
   .panel h2{ margin-bottom:calc(var(--unit)*2); }
   .panel .body-copy{ font-size:1.1rem; }
+
+  /* Same vw-scaled clearance idea as the desktop rule above, but tuned
+     to PIP's mobile size (60px wide instead of 160px) and margin (5vw
+     instead of the desktop calc) — a mobile-width PIP needs much less
+     reserved space, so reusing the desktop padding-left here would
+     just waste most of a narrow screen's width on empty margin. */
+  .scene--what-is-this{ justify-content:flex-start; padding-left:calc(5vw + 70px); }
 
   /* .scene is a row flexbox by default; scene--final-bosses is the one
      scene with two flex children (panel + boss-topics), so without a
@@ -955,17 +980,22 @@ img{ image-rendering:pixelated; }
     bgm.volume = 0.55;
     bgm.play().catch(function(){ /* if it's still blocked, the mute icon just reflects paused state */ });
     onSceneChanged(i);
-    /* Belt-and-suspenders on top of the font/resize listeners below:
-       periodically re-run PIP's placement against whatever the panel's
-       real box is right now. Cheap (a couple of getBoundingClientRect
-       reads), and it means any future layout shift he should dodge
-       around self-corrects within half a second instead of needing a
-       new scroll/step event to trigger a recheck. */
-    setInterval(function(){ if (ready) recheckPipPosition(); }, 500);
   }
   startBtn.addEventListener('click', start);
   window.addEventListener('keydown', function(e){
     if (!ready && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); start(); }
+  });
+
+  /* Every .cta-button (loader start button + Register's Play Perfect
+     Pitch link) gets a timed "pressed" class instead of relying on
+     CSS :active for the press-down effect — see the .pressed comment
+     in the CSS for why :active alone isn't reliable on a link that
+     opens a new tab. */
+  Array.prototype.forEach.call(document.querySelectorAll('.cta-button'), function(btn){
+    btn.addEventListener('click', function(){
+      btn.classList.add('pressed');
+      setTimeout(function(){ btn.classList.remove('pressed'); }, 180);
+    });
   });
 
   function updateMuteUI(){
@@ -1205,8 +1235,8 @@ img{ image-rendering:pixelated; }
      either one, slides him to just outside whichever box edge is
      closest instead — walking around it rather than through it. If no
      clear ground exists on either side (a box spanning the full width
-     at his height), he fades out rather than overlap, and fades back
-     in once there's room. */
+     at his height), he stays put in the nearer gap rather than
+     disappearing — a rare small overlap beats PIP vanishing. */
   var pipEl = document.querySelector('.pip');
   var pipIdleTimer = null;
   var PIP_MIN_VW = 0.05, PIP_MAX_VW = 0.80;
@@ -1252,27 +1282,74 @@ img{ image-rendering:pixelated; }
     }
     return scenes[0];
   }
+  /* On desktop, .track is still sliding (its own --snap-ms transition)
+     for up to 640ms after every scene change, and PIP repositions the
+     moment the change starts — so a raw getBoundingClientRect() on the
+     panel mid-slide reports wherever it happens to be at that instant,
+     not where it lands, and the avoidance math would dodge the wrong
+     spot (or decide there's nothing to dodge at all). The panel is a
+     descendant of its .scene under that SAME transform though, so
+     panel.left − scene.left is invariant throughout the entire slide;
+     once the current scene settles it always sits at viewport x=0, so
+     that invariant offset IS its final on-screen left edge. Normalizing
+     against the scene's own current rect this way gives the correct
+     answer instantly, without waiting on the transition at all. Mobile
+     has no such transform (scenes just sit in normal document flow), so
+     the offset is 0 there — getBoundingClientRect() is already correct. */
   function pipObstacles(){
     var sceneEl = currentSceneEl();
     if (!sceneEl) return [];
-    var els = [sceneEl.querySelector('.panel'), sceneEl.querySelector('.boss-topics')];
-    var finaleBox = document.querySelector('.finale-banner.show .finale-box');
-    if (finaleBox) els.push(finaleBox);
+    var xOffset = isDesktop() ? sceneEl.getBoundingClientRect().left : 0;
+    function normalize(r){
+      return { left:r.left-xOffset, right:r.right-xOffset, top:r.top, bottom:r.bottom, width:r.width, height:r.height };
+    }
     var rects = [];
-    els.forEach(function(el){
-      if (!el) return;
-      var r = el.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) rects.push(r);
-    });
+    var panel = sceneEl.querySelector('.panel');
+    if (panel){
+      var pr = panel.getBoundingClientRect();
+      if (pr.width > 0 && pr.height > 0) rects.push(normalize(pr));
+    }
+    /* .boss-topics itself is left:0;right:0 (full scene width) so its
+       four boxes can be centered with flex-wrap — but that means its
+       OWN getBoundingClientRect() reports the full width too, including
+       the empty flex-container space on either side of the (narrower,
+       centered) boxes on wide viewports. Using that as the obstacle was
+       blocking PIP from standing in space that's visually empty. The
+       tight union of the actual .boss-topic children is what's really
+       occupied on screen. */
+    var topics = sceneEl.querySelectorAll('.boss-topic');
+    if (topics.length){
+      var left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+      topics.forEach(function(t){
+        var r = t.getBoundingClientRect();
+        left = Math.min(left, r.left); right = Math.max(right, r.right);
+        top = Math.min(top, r.top); bottom = Math.max(bottom, r.bottom);
+      });
+      if (isFinite(left)){
+        rects.push(normalize({ left:left, right:right, top:top, bottom:bottom, width:right-left, height:bottom-top }));
+      }
+    }
+    var finaleBox = document.querySelector('.finale-banner.show .finale-box');
+    if (finaleBox){
+      var fr = finaleBox.getBoundingClientRect();
+      if (fr.width > 0 && fr.height > 0) rects.push(fr); // position:fixed — already viewport-correct, no offset
+    }
     return rects;
   }
   /* Priority order is deliberate: PIP should visibly walk UNDER panels/
      boxes as they appear rather than duck sideways past them, so "stand
      in the clear gap below the obstacle" is tried first here, then
-     above, and side-stepping left/right is the last resort before
-     fading out — the reverse of how this used to prioritize side-step
-     first, which could still read as "walking into" content on wide
-     desktop viewports before finding a dodge. */
+     above, and side-stepping left/right is the last resort — the
+     reverse of how this used to prioritize side-step first, which
+     could still read as "walking into" content on wide desktop
+     viewports before finding a dodge. If NONE of the three fit (a
+     content-dense scene like Final Bosses, where the panel and
+     boss-topics together leave less vertical gap than PIP is tall),
+     he used to fade out rather than overlap — but a companion character
+     randomly vanishing read as broken/buggy, more confusing than the
+     rare small overlap it was avoiding. He now just stays at his
+     default ground spot and stays visible; a slight overlap in that
+     one edge case beats an unexplained disappearance. */
   var lastPipProgress = 0;
   function updatePipPosition(progress){
     progress = Math.max(0, Math.min(1, progress));
@@ -1328,14 +1405,10 @@ img{ image-rendering:pixelated; }
         if (candidates.length){
           candidates.sort(function(a, b){ return Math.abs(a - desired) - Math.abs(b - desired); });
           finalX = candidates[0];
-          placed = true;
         }
       }
-
-      pipEl.style.opacity = placed ? '1' : '0';
-    } else {
-      pipEl.style.opacity = '1';
     }
+    pipEl.style.opacity = '1';
     pipEl.style.bottom = finalBottom + 'px';
     pipEl.style.left = finalX + 'px';
   }
@@ -1346,13 +1419,24 @@ img{ image-rendering:pixelated; }
      rechecked once the real text reflows in, letting him end up
      overlapping content that only became an obstacle after the fonts
      swapped in. Re-running the same positioning call once fonts are
-     ready (and on resize/orientation change, for the same reason) fixes
-     that at the source instead of guessing a timing delay. */
+     ready fixes that at the source instead of guessing a timing delay.
+
+     resize is debounced, not called directly: mobile browsers fire it
+     repeatedly during an ordinary scroll as the address bar shows/hides
+     (that alone changes window.innerHeight several times per swipe).
+     Reacting to every one of those on top of the scroll handler already
+     repositioning him was producing the jittery, repeatedly-retransitioning
+     "weird movement" — debouncing collapses that burst into one recheck
+     after the viewport actually settles. */
   function recheckPipPosition(){ updatePipPosition(lastPipProgress); }
   if (document.fonts && document.fonts.ready){
     document.fonts.ready.then(recheckPipPosition);
   }
-  window.addEventListener('resize', recheckPipPosition);
+  var resizeDebounceTimer = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeDebounceTimer);
+    resizeDebounceTimer = setTimeout(recheckPipPosition, 250);
+  });
   window.addEventListener('scroll', function(){
     if (isDesktop()) return;
     pipWalk();
