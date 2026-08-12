@@ -48,6 +48,18 @@
 *{ box-sizing:border-box; margin:0; padding:0; }
 html,body{ height:100%; }
 
+/* Buttons and HUD chrome are tap targets, not text — without this, an
+   imprecise real-finger tap (near-universal; fingers drift a few px)
+   can register as a text-selection drag instead of a click, silently
+   swallowing the tap. -webkit-tap-highlight-color kills the gray flash
+   box; -webkit-touch-callout stops iOS's long-press "copy" menu. */
+button, .cta-button, .hud, .pip, .bonus-coin, .sound-toggle{
+  -webkit-user-select:none; user-select:none;
+  -webkit-touch-callout:none;
+  -webkit-tap-highlight-color:transparent;
+}
+button{ touch-action:manipulation; }
+
 body{
   font-family:var(--font-body);
   background:var(--void);
@@ -487,27 +499,54 @@ img{ image-rendering:pixelated; }
    Same content + art, top to bottom instead of left to right.
    ============================================================ */
 @media (max-width:768px){
-  /* html,body{height:100%} (base rule, desktop's fixed-viewport trick)
-     plus body{overflow-y:auto} here turned <body> into its OWN internal
-     scroll container instead of letting the window/document scroll —
-     which is what made the "sticky" HUD below scroll away with the
-     content instead of staying pinned, and would have silently broken
-     window.scrollY-based tracking too. height:auto lets body grow to
-     its real content height so the window scrolls it normally. */
-  body{ height:auto; overflow-x:hidden; }
+  /* html,body{height:100%} + body{overflow:hidden} (base rules, desktop's
+     fixed-viewport trick) both need overriding here, not just height.
+     Leaving overflow-y on its inherited "hidden" (only overflow-x got
+     set below in an earlier pass) doesn't just fail to fix scrolling —
+     per the CSS overflow-propagation rule, when <html> has no explicit
+     overflow (the default), the browser applies <body>'s COMPUTED
+     overflow to the viewport itself. So "hidden" on body's overflow-y
+     was silently making the whole page's effective overflow-y hidden,
+     which blocks real touch/swipe scrolling entirely — while still
+     letting programmatic scrollTo() through, since that bypasses the
+     user-gesture restriction overflow:hidden enforces. That mismatch
+     between what testing tools can drive and what a real finger swipe
+     does is exactly what let this slip through twice already. */
+  body{ height:auto; overflow-x:hidden; overflow-y:auto; }
   .viewport{ position:static; overflow:visible; height:auto; }
   .track{
     flex-direction:column; width:100%; height:auto;
     transform:none !important; transition:none;
   }
-  .scene{ flex:none; width:100%; height:auto; min-height:100vh; padding:calc(var(--unit)*3) calc(var(--unit)*2.5); }
+  /* padding-top is deliberately generous (well past the sticky HUD's own
+     ~71px height) and applies to every scene uniformly, not just the
+     top-anchored ones: the HUD only reserves flow space once, at the
+     very top of the page, so scenes 2-6 have no built-in gap of their
+     own — whenever one scrolls to align its own top edge with the
+     viewport top, its content would render right under the pinned HUD
+     without this. Same-specificity class selector placed after the
+     per-scene composition rules earlier in the file, so it wins and
+     overrides their smaller desktop/tablet padding-top values here. */
+  .scene{
+    flex:none; width:100%; height:auto; min-height:100vh;
+    padding:calc(var(--unit)*3) calc(var(--unit)*2.5);
+    padding-top:calc(var(--unit)*11);
+  }
 
   /* HUD: logo + coins/hearts on one row, the event chip on its own row
      below — three items no longer fight for space on one narrow line.
-     position:fixed (not sticky) so it stays pinned to the viewport
-     regardless of which element ends up owning the scroll. */
+     position:sticky (not fixed): sticky still reserves its own space in
+     normal document flow, pushing the scenes below it down permanently,
+     so it can never overlap scene content the way fixed did (fixed
+     takes the HUD out of flow entirely, so top-anchored panels ended up
+     rendering underneath it). It was switched to fixed once already to
+     chase a "HUD disappears on scroll" bug, but that bug's real cause
+     was body's rogue internal scroll container (see the body rule
+     above) breaking sticky's scroll-ancestor reference — now that's
+     fixed at the source, sticky is correct again and doesn't need the
+     workaround. */
   .hud{
-    position:fixed;
+    position:sticky; top:0;
     grid-template-columns:1fr auto; grid-template-rows:auto auto;
     grid-template-areas:"logo right" "chip chip";
     row-gap:calc(var(--unit)*1); column-gap:calc(var(--unit)*1.5);
@@ -534,7 +573,7 @@ img{ image-rendering:pixelated; }
      cramped mobile layout. */
   .scene--final-bosses{
     flex-direction:column; align-items:stretch; justify-content:flex-start;
-    gap:calc(var(--unit)*3); padding-top:calc(var(--unit)*3);
+    gap:calc(var(--unit)*3);
   }
 
   /* Boss topics: full-width single column instead of a cramped 2-up
@@ -888,35 +927,62 @@ img{ image-rendering:pixelated; }
     return isDesktop() ? { w:34, h:76 } : { w:28, h:63 };
   }
 
-  /* Rejection-samples a spot clear of the current scene's panel/
-     boss-topics (reusing the same obstacle rects PIP dodges), rather
-     than a fixed zone, since panel size/position varies by scene and
-     viewport. Falls back to its last try if nothing clean turns up in
-     a few attempts — better to occasionally sit close to the panel
-     edge than spin forever. */
+  /* Finds a spot clear of the current scene's panel/boss-topics (reusing
+     the same obstacle rects PIP dodges) rather than a fixed zone, since
+     panel size/position varies by scene and viewport. Plain random-then-
+     reject sampling isn't reliable here: on content-dense scenes like
+     Final Bosses, the panel and boss-topics together can cover nearly
+     the whole vertical band, leaving a gap far smaller than the random
+     search area — random sampling mostly missed it. Instead this merges
+     the obstacles' vertical spans and explicitly computes the free
+     bands between/around them, then places the coin in whichever band
+     is biggest (falling back to the top margin if every band is too
+     short for the coin, rather than landing inside an obstacle). */
   function randomCoinSpot(coinW, coinH){
     var margin = { top:76, side:20, bottom:76 };
     var w = window.innerWidth, h = window.innerHeight;
+    var searchTop = margin.top, searchBottom = h - margin.bottom;
     var maxX = Math.max(0, w - coinW - margin.side * 2);
-    var maxY = Math.max(0, h - coinH - margin.top - margin.bottom);
-    var obstacles = pipObstacles();
-    var spot = { x: margin.side, y: margin.top };
-    for (var attempt = 0; attempt < 10; attempt++){
-      var x = margin.side + Math.random() * maxX;
-      var y = margin.top + Math.random() * maxY;
-      spot = { x:x, y:y };
-      var hits = obstacles.some(function(o){
-        return !(x + coinW < o.left || x > o.right || y + coinH < o.top || y > o.bottom);
-      });
-      if (!hits) break;
-    }
-    return spot;
+    var x = margin.side + Math.random() * maxX;
+
+    var bands = pipObstacles()
+      .map(function(o){ return { top: Math.max(o.top, searchTop), bottom: Math.min(o.bottom, searchBottom) }; })
+      .filter(function(o){ return o.bottom > o.top; })
+      .sort(function(a, b){ return a.top - b.top; });
+    var merged = [];
+    bands.forEach(function(o){
+      var last = merged[merged.length - 1];
+      if (last && o.top <= last.bottom) last.bottom = Math.max(last.bottom, o.bottom);
+      else merged.push({ top: o.top, bottom: o.bottom });
+    });
+
+    var gaps = [];
+    var cursor = searchTop;
+    merged.forEach(function(m){
+      if (m.top - cursor >= coinH) gaps.push({ top: cursor, bottom: m.top });
+      cursor = Math.max(cursor, m.bottom);
+    });
+    if (searchBottom - cursor >= coinH) gaps.push({ top: cursor, bottom: searchBottom });
+
+    if (!gaps.length) return null; // no band anywhere fits the coin — see spawnCoin()
+    gaps.sort(function(a, b){ return (b.bottom - b.top) - (a.bottom - a.top); });
+    var g = gaps[0];
+    var y = g.top + Math.random() * Math.max(0, (g.bottom - g.top) - coinH);
+    return { x: x, y: y };
   }
 
   function spawnCoin(el, state){
     if (!windowActive) return;
     var size = coinSizePx();
     var spot = randomCoinSpot(size.w, size.h);
+    if (!spot){
+      // Content-dense scene, genuinely no clear space right now — skip
+      // this cycle rather than overlap the panel/boss-topics, and just
+      // retry shortly (same cadence as a missed coin).
+      el.hidden = true;
+      state.spawnTimer = setTimeout(function(){ if (windowActive) spawnCoin(el, state); }, COIN_RESPAWN_GAP_MS);
+      return;
+    }
     el.style.left = spot.x + 'px';
     el.style.top = spot.y + 'px';
     el.classList.remove('pop');
