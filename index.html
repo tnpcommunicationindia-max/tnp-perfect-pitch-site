@@ -117,6 +117,60 @@ img{ image-rendering:pixelated; }
    from an image asset. ---------- */
 .hud-hearts{ display:flex; align-items:center; gap:calc(var(--unit)*.85); }
 
+/* ---------- Finale reveal (Register scene only) ----------
+   A top banner that fades in with a confetti burst once the whole
+   journey is complete, rather than a plain inline stat inside the
+   panel — this is the payoff beat, so it gets its own moment. Sits
+   above everything (bonus coins, HUD) since it's a one-time overlay
+   event, not persistent chrome. Confetti pieces are small solid
+   squares in the brand palette, built directly rather than pulled
+   from an asset — decorative UI chrome like the heart icon, not
+   illustrative pixel art. */
+.finale-banner{
+  position:fixed; top:0; left:0; right:0; z-index:60;
+  display:flex; justify-content:center;
+  padding-top:calc(var(--unit)*3);
+  pointer-events:none;
+  opacity:0; transform:translateY(-16px);
+  transition:opacity .5s ease, transform .5s ease;
+}
+.finale-banner.show{ opacity:1; transform:none; }
+.finale-box{
+  position:relative; z-index:1;
+  background:var(--void); border:2px solid var(--coin-gold);
+  padding:calc(var(--unit)*2) calc(var(--unit)*3);
+  text-align:center;
+}
+.finale-title{
+  font-family:var(--font-display); color:var(--lime);
+  font-size:clamp(.65rem, 2.2vw, .95rem); letter-spacing:.04em; line-height:1.6;
+}
+.finale-coins{
+  font-family:var(--font-hud); color:var(--coin-gold);
+  font-size:1.2rem; letter-spacing:.04em; margin-top:calc(var(--unit)*1);
+}
+/* Applied by JS if there isn't clear room above the Register panel on a
+   short viewport — shrinks the box instead of letting it overlap. */
+.finale-banner.compact{ padding-top:calc(var(--unit)*1.5); }
+.finale-banner.compact .finale-box{ padding:calc(var(--unit)*1.25) calc(var(--unit)*2); }
+.finale-banner.compact .finale-title{ font-size:clamp(.55rem, 1.8vw, .75rem); }
+.finale-banner.compact .finale-coins{ font-size:1rem; margin-top:calc(var(--unit)*.5); }
+.confetti-layer{
+  position:absolute; inset:0 0 auto 0; height:0; overflow:visible; z-index:0;
+}
+.confetti-piece{
+  position:absolute; top:-12px; width:8px; height:8px;
+  animation:confetti-fall 1.8s ease-in forwards;
+}
+@keyframes confetti-fall{
+  0%{ transform:translateY(0) rotate(0deg); opacity:1; }
+  100%{ transform:translateY(160px) rotate(220deg); opacity:0; }
+}
+@media (prefers-reduced-motion:reduce){
+  .finale-banner{ transition:opacity .2s linear; }
+  .confetti-piece{ animation:none; display:none; }
+}
+
 /* Sound toggle — a plain bordered text box, band5051-style, fixed to
    the bottom-left corner rather than tucked into the HUD. */
 .sound-toggle{
@@ -181,7 +235,7 @@ img{ image-rendering:pixelated; }
    an already-crisp, already-cropped bitmap down to display size. */
 .pip{
   --pip-scale:0.49382716; /* 160/324 — much bigger: ~3.3x the original 48px-wide size */
-  position:fixed; z-index:1; bottom:14px; left:4vw;
+  position:fixed; z-index:1; bottom:6px; left:4vw;
   width:324px; height:764px; /* native-scale crop window: trims the frame's white bottom-right edge */
   transform-origin:left bottom;
   transform:translateY(0) scale(var(--pip-scale));
@@ -297,12 +351,18 @@ img{ image-rendering:pixelated; }
 .panel .badge--bronze{ color:var(--coral); border-color:var(--coral); }
 
 /* ---------- Hint icon (Scene 1 only) ----------
-   A small "?" badge on the corner of the panel that discloses a short
-   explainer for the coin side-game. Square + sharp-cornered like every
-   other badge/panel on the site, not a CSS circle, to stay consistent
-   with the pixel-art hard-edge rule. */
+   A small "?" badge that discloses a short explainer for the coin
+   side-game. Positioned relative to the SCENE (not the panel) so it
+   sits at a fixed spot in the top-right of the screen, just below the
+   HUD's heart row, regardless of where the panel itself is laid out —
+   .scene is position:relative and exactly fills the viewport while
+   it's the active scene, so this lines up with the HUD without needing
+   position:fixed (which would've kept it visible on every scene, not
+   just this one). Square + sharp-cornered like every other badge/panel
+   on the site, not a CSS circle, to stay consistent with the pixel-art
+   hard-edge rule. */
 .hint-icon{
-  position:absolute; top:calc(var(--unit)*-2); right:calc(var(--unit)*-2); z-index:3;
+  position:absolute; top:56px; right:20px; z-index:20;
   width:34px; height:34px; display:flex; align-items:center; justify-content:center;
   font-family:var(--font-display); font-size:.9rem; line-height:1;
   color:var(--coin-gold); background:var(--void); border:2px solid var(--coin-gold);
@@ -310,7 +370,7 @@ img{ image-rendering:pixelated; }
 }
 .hint-icon:focus-visible{ outline:3px solid var(--lime); outline-offset:3px; }
 .hint-popover{
-  position:absolute; top:calc(var(--unit)*2.75); right:0; z-index:4;
+  position:absolute; top:98px; right:20px; z-index:20;
   width:min(80vw, 300px);
   background:var(--void); border:2px solid var(--coin-gold);
   padding:calc(var(--unit)*2);
@@ -319,6 +379,10 @@ img{ image-rendering:pixelated; }
 .hint-popover[hidden]{ display:none; }
 .hint-popover strong{ color:var(--coin-gold); }
 .hint-popover p + p{ margin-top:calc(var(--unit)*1.25); }
+@media (max-width:768px){
+  .hint-icon{ top:80px; right:16px; }
+  .hint-popover{ top:122px; right:16px; }
+}
 
 /* Scene 1 composition: panel sits left, leaving the coin jar on the
    right of bg-what-is-this.png in view. Collapses to centered before
@@ -397,9 +461,9 @@ img{ image-rendering:pixelated; }
   font-family:var(--font-hud); color:var(--cream); opacity:.6;
   font-size:.95rem; letter-spacing:.04em; margin-top:calc(var(--unit)*1.25);
 }
-.panel .coin-tally{
-  font-family:var(--font-hud); color:var(--coin-gold);
-  font-size:1.15rem; letter-spacing:.05em;
+.panel .register-note{
+  font-family:var(--font-hud); color:var(--teal);
+  font-size:1.1rem; letter-spacing:.03em;
   margin-bottom:calc(var(--unit)*2.5);
 }
 
@@ -486,7 +550,11 @@ img{ image-rendering:pixelated; }
   border:none; cursor:pointer; text-decoration:none;
   font-size:clamp(.55rem, 1.7vw, .75rem); letter-spacing:.06em; line-height:1.7;
   padding:calc(var(--unit)*1.75) calc(var(--unit)*2.5);
+  box-shadow:0 4px 0 #1a8f45; transform:translateY(0);
+  transition:transform .12s ease, box-shadow .12s ease, background-color .12s ease;
 }
+.cta-button:hover{ background:#6dff96; transform:translateY(-2px); box-shadow:0 6px 0 #1a8f45; }
+.cta-button:active{ transform:translateY(2px); box-shadow:0 2px 0 #1a8f45; }
 
 .loader-cta .sub{
   margin-top:calc(var(--unit)*1.5);
@@ -651,19 +719,29 @@ img{ image-rendering:pixelated; }
     </div>
   </header>
 
+  <!-- Finale reveal — confetti + congratulations, shown only once the
+       Register scene is reached (see onSceneChanged() in the script). -->
+  <div class="finale-banner" id="finaleBanner" aria-live="polite">
+    <div class="confetti-layer" id="confettiLayer" aria-hidden="true"></div>
+    <div class="finale-box">
+      <p class="finale-title">CONGRATULATIONS!</p>
+      <p class="finale-coins">COINS COLLECTED THIS RUN: <span id="finaleCoinsValue">0</span></p>
+    </div>
+  </div>
+
   <!-- Scroll journey -->
   <div class="viewport">
     <div class="track">
 
       <section class="scene scene--what-is-this" aria-label="Scene 1: What is this?">
         <img class="scene-bg" src="assets/bg-what-is-this.png" alt="" />
+        <button type="button" class="hint-icon" id="hintIcon" aria-expanded="false" aria-controls="hintPopover">?</button>
+        <div class="hint-popover" id="hintPopover" hidden>
+          <p><strong>GOLD COINS ARE HIDDEN ON EVERY SCREEN.</strong></p>
+          <p>You get 15 seconds per screen to tap them for +10 each. Scroll back to an earlier screen and you lose what you've collected &mdash; no continues.</p>
+        </div>
         <div class="panel">
-          <button type="button" class="hint-icon" id="hintIcon" aria-expanded="false" aria-controls="hintPopover">?</button>
-          <div class="hint-popover" id="hintPopover" hidden>
-            <p><strong>GOLD COINS ARE HIDDEN ON EVERY SCREEN.</strong></p>
-            <p>You get 15 seconds per screen to tap them for +10 each. Scroll back to an earlier screen and you lose what you've collected &mdash; no continues.</p>
-          </div>
-          <h2>WHAT IS THIS?</h2>
+          <h2>WHAT IS THE GAME?</h2>
           <p class="body-copy">TNP Perfect Pitch is a Shark Tank&ndash;style pitch competition, open to every TNP India employee. Bring an idea &mdash; a product, a service, a process fix, anything &mdash; and pitch it live to a panel of external judges: five minutes to make your case, followed by a round of investor-style questions. No department gatekeeps a good idea here. If you have one, this is where you bring it.</p>
           <div class="badge-row"><div class="badge">16 SEPTEMBER 2026</div></div>
         </div>
@@ -685,21 +763,21 @@ img{ image-rendering:pixelated; }
               <span class="step-num">02</span>
               <div>
                 <h3>LOAD YOUR IDEA</h3>
-                <p>Submit your run and lock in the deck before the doors close.</p>
+                <p>Submit your Pitch.</p>
               </div>
             </li>
             <li>
               <span class="step-num">03</span>
               <div>
                 <h3>LEVEL 01: THE PITCH</h3>
-                <p>Five minutes on stage, timed, with a visible countdown.</p>
+                <p>Five minutes on the stage. Present your best pitch.</p>
               </div>
             </li>
             <li>
               <span class="step-num">04</span>
               <div>
-                <h3>THE BOSS FIGHT</h3>
-                <p>Straight into questions from the judges. This is where runs are won.</p>
+                <h3>THE BOSS ROUND</h3>
+                <p>Straight into questions from the judges. This is where coins are won.</p>
               </div>
             </li>
           </ol>
@@ -721,9 +799,9 @@ img{ image-rendering:pixelated; }
         <img class="scene-bg" src="assets/bg-final-bosses.png" alt="" />
         <div class="panel">
           <h2>THE FINAL BOSSES</h2>
-          <p class="body-copy">Five to seven minutes of investor-style questioning, straight after your pitch. This is where runs are won.</p>
+          <p class="body-copy">Five to seven minutes of investor-style questioning, straight after your pitch. This is where coins are won.</p>
           <p class="callout callout--coral">Composure is scored as heavily as content. How you handle the round counts.</p>
-          <p class="callout callout--teal">FOUR EXTERNAL JUDGES. NONE OF THEM WORK HERE.</p>
+          <p class="callout callout--teal">FOUR JUDGES. NONE OF THEM WORK HERE.</p>
         </div>
         <div class="boss-topics">
           <div class="boss-topic"><h3>MARKET</h3><p>Who buys this, and why now rather than later?</p></div>
@@ -737,11 +815,11 @@ img{ image-rendering:pixelated; }
         <img class="scene-bg" src="assets/bg-how-you-win.png" alt="" />
         <div class="panel">
           <h2>HOW YOU WIN</h2>
-          <p class="body-copy">Every judge scores your pitch out of 50, across five categories &mdash; four judges, 200 points in total. That's 70% of your Final Score. The other 30% comes from The Vault: the coins each Final Boss drops into your jar once your Boss Fight ends. A full jar means the room is convinced; a thin one means the numbers still need work.</p>
+          <p class="body-copy">Every judge scores your pitch out of 50, across five categories &mdash; four judges, 200 points in total. That's 70% of your Final Score. The other 30% comes from The Vault: the coins each Boss drops into your jar once your Boss round ends. A full jar means the room is convinced; a thin one means the numbers still need work.</p>
           <div class="badge-row">
             <div class="badge badge--gold">1ST &mdash; &#8377;30,000</div>
             <div class="badge badge--silver">2ND &mdash; &#8377;15,000</div>
-            <div class="badge badge--bronze">3RD &mdash; &#8377;5,000</div>
+            <div class="badge badge--bronze">FAN FAVOURITE &mdash; &#8377;5,000</div>
           </div>
         </div>
       </section>
@@ -750,13 +828,8 @@ img{ image-rendering:pixelated; }
         <img class="scene-bg" src="assets/bg-register.png" alt="" />
         <div class="panel">
           <h2>REGISTER</h2>
-          <p class="coin-tally">COINS COLLECTED THIS RUN: <span id="totalCoinsCollected">0</span></p>
-          <!--
-            PLACEHOLDER — replace PASTE_MICROSOFT_FORM_URL_HERE with the
-            real Microsoft Form link once it's built. This link only ever
-            opens that form in a new tab; nothing here embeds the form.
-          -->
-          <a class="cta-button" href="PASTE_MICROSOFT_FORM_URL_HERE" target="_blank" rel="noopener">PRESS START TO PITCH</a>
+          <p class="register-note">You do not need an idea/team to register now.</p>
+          <a class="cta-button" href="https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=fcI0ffuI_UO71he6DakuUONap9FU-3tEiJqrPwXixLRUNktSRjFGOFRUUUpPQURGRThWT05SVE03Wi4u" target="_blank" rel="noopener">PLAY PERFECT PITCH</a>
           <p class="caption">Opens the registration form in a new tab.</p>
         </div>
       </section>
@@ -773,7 +846,7 @@ img{ image-rendering:pixelated; }
       <div class="progress" id="progressBar"></div>
       <div class="loader-cta" id="loaderCta">
         <button type="button" id="startBtn" class="cta-button">PRESS START TO PITCH</button>
-        <div class="sub">Five minutes. No continues.</div>
+        <div class="sub">Five minutes. &#8377;50K in Prize Pool.</div>
       </div>
     </div>
   </div>
@@ -882,6 +955,13 @@ img{ image-rendering:pixelated; }
     bgm.volume = 0.55;
     bgm.play().catch(function(){ /* if it's still blocked, the mute icon just reflects paused state */ });
     onSceneChanged(i);
+    /* Belt-and-suspenders on top of the font/resize listeners below:
+       periodically re-run PIP's placement against whatever the panel's
+       real box is right now. Cheap (a couple of getBoundingClientRect
+       reads), and it means any future layout shift he should dodge
+       around self-corrects within half a second instead of needing a
+       new scroll/step event to trigger a recheck. */
+    setInterval(function(){ if (ready) recheckPipPosition(); }, 500);
   }
   startBtn.addEventListener('click', start);
   window.addEventListener('keydown', function(e){
@@ -909,10 +989,13 @@ img{ image-rendering:pixelated; }
      shortly after. Once 15s is up, spawning stops and any coin still
      showing disappears until the next scene starts its own window.
      Moving BACKWARD to an earlier scene forfeits the run entirely —
-     score resets to 0 — so reaching Scene 1 always reads 0. */
+     score resets to 0 — so reaching Scene 1 always reads 0. The last
+     scene (Register) never opens a window at all — collection only
+     runs through the first five scenes; Register just displays the
+     final tally via the confetti reveal (see showFinale() below). */
   var bonusCoins = Array.prototype.slice.call(document.querySelectorAll('.bonus-coin'));
   var coinCountEl = document.getElementById('coinCountValue');
-  var totalCoinsEl = document.getElementById('totalCoinsCollected');
+  var finaleCoinsEl = document.getElementById('finaleCoinsValue');
   var coinScore = 0;
   var COIN_LIFETIME_MS = 3000, COIN_RESPAWN_GAP_MS = 900, COIN_WINDOW_MS = 15000;
   var coinState = bonusCoins.map(function(){ return { lifeTimer:null, spawnTimer:null }; });
@@ -920,7 +1003,7 @@ img{ image-rendering:pixelated; }
 
   function updateCoinDisplays(){
     coinCountEl.textContent = coinScore;
-    if (totalCoinsEl) totalCoinsEl.textContent = coinScore;
+    if (finaleCoinsEl) finaleCoinsEl.textContent = coinScore;
   }
 
   function coinSizePx(){
@@ -1017,9 +1100,59 @@ img{ image-rendering:pixelated; }
     }, COIN_WINDOW_MS);
   }
 
+  /* ---------- Finale reveal (Register scene) ----------
+     Confetti pieces are plain colored squares in the brand palette,
+     positioned/timed randomly and appended fresh on every reveal so
+     repeat visits (forward, back, forward again) replay cleanly. */
+  var finaleBanner = document.getElementById('finaleBanner');
+  var confettiLayer = document.getElementById('confettiLayer');
+  var CONFETTI_COLORS = ['var(--lime)', 'var(--coin-gold)', 'var(--teal)', 'var(--coral)', 'var(--cream)'];
+  var finaleShown = false;
+
+  function spawnConfetti(){
+    confettiLayer.innerHTML = '';
+    for (var k = 0; k < 26; k++){
+      var piece = document.createElement('span');
+      piece.className = 'confetti-piece';
+      piece.style.left = (Math.random() * 100) + '%';
+      piece.style.background = CONFETTI_COLORS[k % CONFETTI_COLORS.length];
+      piece.style.animationDelay = (Math.random() * 0.6) + 's';
+      piece.style.animationDuration = (1.4 + Math.random() * 0.8) + 's';
+      confettiLayer.appendChild(piece);
+    }
+  }
+
+  var FINALE_COIN_THRESHOLD = 20;
+  function showFinale(){
+    if (finaleShown || coinScore <= FINALE_COIN_THRESHOLD) return;
+    finaleShown = true;
+    updateCoinDisplays();
+    finaleBanner.classList.remove('compact');
+    finaleBanner.classList.add('show');
+    spawnConfetti();
+    // Guard against overlapping the Register panel below it (a risk on
+    // short viewports, since the panel's height depends on its content):
+    // measure both after layout settles and drop to a smaller, tighter
+    // version of the box if there isn't clear room between them.
+    requestAnimationFrame(function(){
+      var registerPanel = document.querySelector('.scene--register .panel');
+      var box = finaleBanner.querySelector('.finale-box');
+      if (!registerPanel || !box) return;
+      var panelTop = registerPanel.getBoundingClientRect().top;
+      var boxBottom = box.getBoundingClientRect().bottom;
+      if (boxBottom + 12 > panelTop) finaleBanner.classList.add('compact');
+    });
+  }
+
+  function hideFinale(){
+    finaleShown = false;
+    finaleBanner.classList.remove('show');
+  }
+
   /* The single hook every scene-change path (desktop goTo(), mobile
-     scroll) calls into. Forfeits the score on any backward move, then
-     always restarts the window fresh for wherever you land. */
+     scroll) calls into. Forfeits the score on any backward move. The
+     last scene (Register) gets the confetti reveal instead of a coin
+     window — collection only runs through the first five scenes. */
   function onSceneChanged(newIndex){
     if (newIndex === lastSceneIndex) return;
     if (newIndex < lastSceneIndex){
@@ -1027,7 +1160,15 @@ img{ image-rendering:pixelated; }
       updateCoinDisplays();
     }
     lastSceneIndex = newIndex;
-    startCoinWindow();
+    if (newIndex === TOTAL - 1){
+      windowActive = false;
+      clearTimeout(coinWindowTimer);
+      stopAllCoins();
+      showFinale();
+    } else {
+      hideFinale();
+      startCoinWindow();
+    }
   }
 
   bonusCoins.forEach(function(el, idx){
@@ -1069,7 +1210,7 @@ img{ image-rendering:pixelated; }
   var pipEl = document.querySelector('.pip');
   var pipIdleTimer = null;
   var PIP_MIN_VW = 0.05, PIP_MAX_VW = 0.80;
-  var PIP_BOTTOM_PX = 14, PIP_GAP_PX = 6;
+  var PIP_BOTTOM_PX = 6, PIP_GAP_PX = 6; /* was 14 — sits a bit lower, closer to the ground */
   /* PIP's on-screen size differs by breakpoint (desktop 160px wide vs
      mobile 70px, see the .pip transform overrides in the CSS) — read it
      back from the live element so the collision math below always
@@ -1115,6 +1256,8 @@ img{ image-rendering:pixelated; }
     var sceneEl = currentSceneEl();
     if (!sceneEl) return [];
     var els = [sceneEl.querySelector('.panel'), sceneEl.querySelector('.boss-topics')];
+    var finaleBox = document.querySelector('.finale-banner.show .finale-box');
+    if (finaleBox) els.push(finaleBox);
     var rects = [];
     els.forEach(function(el){
       if (!el) return;
@@ -1123,8 +1266,17 @@ img{ image-rendering:pixelated; }
     });
     return rects;
   }
+  /* Priority order is deliberate: PIP should visibly walk UNDER panels/
+     boxes as they appear rather than duck sideways past them, so "stand
+     in the clear gap below the obstacle" is tried first here, then
+     above, and side-stepping left/right is the last resort before
+     fading out — the reverse of how this used to prioritize side-step
+     first, which could still read as "walking into" content on wide
+     desktop viewports before finding a dodge. */
+  var lastPipProgress = 0;
   function updatePipPosition(progress){
     progress = Math.max(0, Math.min(1, progress));
+    lastPipProgress = progress;
     var vw = window.innerWidth, vh = window.innerHeight;
     var pipW = pipWidthPx(), pipH = pipHeightPx();
     var minX = vw * PIP_MIN_VW;
@@ -1147,50 +1299,60 @@ img{ image-rendering:pixelated; }
 
     var finalX = desired, finalBottom = PIP_BOTTOM_PX;
     if (obstacles.length && overlapsAt(finalX, groundTop, groundBottom)){
-      // First choice: side-step left/right of the obstacle at ground level.
-      var candidates = [];
-      obstacles.forEach(function(o){
-        candidates.push(o.left - PIP_GAP_PX - pipW);
-        candidates.push(o.right + PIP_GAP_PX);
-      });
-      candidates = candidates.filter(function(x){
-        return x >= 0 && (x + pipW) <= vw && !overlapsAt(x, groundTop, groundBottom);
-      });
-      if (candidates.length){
-        candidates.sort(function(a, b){ return Math.abs(a - desired) - Math.abs(b - desired); });
-        finalX = candidates[0];
-        pipEl.style.opacity = '1';
-      } else {
-        // No side lane exists (a full-width panel, common on mobile) — stand
-        // in whichever vertical gap is actually clear: below the obstacles
-        // (still low/grounded, just not at the very bottom) if there's room,
-        // otherwise above them. Only fall back to fading out if neither fits.
-        var minTop = Math.min.apply(null, obstacles.map(function(o){ return o.top; }));
-        var maxBottom = Math.max.apply(null, obstacles.map(function(o){ return o.bottom; }));
-        var screenMargin = 8;
-        var belowTop = maxBottom + PIP_GAP_PX;
-        var aboveTop = minTop - PIP_GAP_PX - pipH;
-        var placed = false;
-        if (belowTop + pipH <= vh - screenMargin && !overlapsAt(desired, belowTop, belowTop + pipH)){
-          finalBottom = vh - belowTop - pipH;
+      var screenMargin = 8;
+      var minTop = Math.min.apply(null, obstacles.map(function(o){ return o.top; }));
+      var maxBottom = Math.max.apply(null, obstacles.map(function(o){ return o.bottom; }));
+      var belowTop = maxBottom + PIP_GAP_PX;
+      var aboveTop = minTop - PIP_GAP_PX - pipH;
+      var placed = false;
+
+      if (belowTop + pipH <= vh - screenMargin && !overlapsAt(desired, belowTop, belowTop + pipH)){
+        finalBottom = vh - belowTop - pipH;
+        finalX = Math.max(0, Math.min(vw - pipW, desired));
+        placed = true;
+      } else if (aboveTop >= screenMargin && !overlapsAt(desired, aboveTop, aboveTop + pipH)){
+        finalBottom = vh - aboveTop - pipH;
+        finalX = Math.max(0, Math.min(vw - pipW, desired));
+        placed = true;
+      }
+
+      if (!placed){
+        var candidates = [];
+        obstacles.forEach(function(o){
+          candidates.push(o.left - PIP_GAP_PX - pipW);
+          candidates.push(o.right + PIP_GAP_PX);
+        });
+        candidates = candidates.filter(function(x){
+          return x >= 0 && (x + pipW) <= vw && !overlapsAt(x, groundTop, groundBottom);
+        });
+        if (candidates.length){
+          candidates.sort(function(a, b){ return Math.abs(a - desired) - Math.abs(b - desired); });
+          finalX = candidates[0];
           placed = true;
-        } else if (aboveTop >= screenMargin && !overlapsAt(desired, aboveTop, aboveTop + pipH)){
-          finalBottom = vh - aboveTop - pipH;
-          placed = true;
-        }
-        if (placed){
-          finalX = Math.max(0, Math.min(vw - pipW, desired));
-          pipEl.style.opacity = '1';
-        } else {
-          pipEl.style.opacity = '0';
         }
       }
+
+      pipEl.style.opacity = placed ? '1' : '0';
     } else {
       pipEl.style.opacity = '1';
     }
     pipEl.style.bottom = finalBottom + 'px';
     pipEl.style.left = finalX + 'px';
   }
+  /* The dodge above reads the panel's live getBoundingClientRect(), but
+     if it runs before web fonts finish loading, the panel is still at
+     its fallback-font size — often shorter/narrower than its true size
+     — so PIP's avoidance math is computed against a stale box and never
+     rechecked once the real text reflows in, letting him end up
+     overlapping content that only became an obstacle after the fonts
+     swapped in. Re-running the same positioning call once fonts are
+     ready (and on resize/orientation change, for the same reason) fixes
+     that at the source instead of guessing a timing delay. */
+  function recheckPipPosition(){ updatePipPosition(lastPipProgress); }
+  if (document.fonts && document.fonts.ready){
+    document.fonts.ready.then(recheckPipPosition);
+  }
+  window.addEventListener('resize', recheckPipPosition);
   window.addEventListener('scroll', function(){
     if (isDesktop()) return;
     pipWalk();
